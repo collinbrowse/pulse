@@ -1,0 +1,13 @@
+# build outputs
+build/
+probe
+pulse-fand
+pulse-scanner
+__pycache__/
+*.pyc
+
+# local state
+pulse_settings.json
+*.log
+.DS_Store
+.claude/

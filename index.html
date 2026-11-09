@@ -1,0 +1,1237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f3f3f1;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --border: #e3e2dd;
+  --grid: #e9e8e4;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #7a7974;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --good-ink: #006300; --warning-ink: #8a5a00; --serious-ink: #a8431c; --critical-ink: #b02a2a;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2c2c2a; --grid: #262624;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c85;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    --good-ink: #5fd35f; --warning-ink: #fab219; --serious-ink: #ec835a; --critical-ink: #f07070;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2c2c2a; --grid: #262624;
+  --text: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c85;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  --good-ink: #5fd35f; --warning-ink: #fab219; --serious-ink: #ec835a; --critical-ink: #f07070;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+.num { font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; }
+.wrap { max-width: 1480px; margin: 0 auto; padding: 20px 24px 48px; }
+
+/* header */
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand svg { width: 26px; height: 26px; }
+.brand h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+.machine { color: var(--text-3); font-size: 13px; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); font-weight: 600; font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.seg button { border: 0; background: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; color: var(--text-2); font-size: 13px; }
+.seg button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.ghost { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 5px 10px;
+  cursor: pointer; font-size: 13px; color: var(--text-2); }
+.ghost:hover { color: var(--text); }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px 8px;
+  box-shadow: var(--shadow); min-width: 0; }
+.tile .lbl { color: var(--text-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  display: flex; align-items: center; gap: 6px; }
+.tile .val { font-size: 26px; font-weight: 650; letter-spacing: -.02em; margin-top: 2px; white-space: nowrap; }
+.tile .val small { font-size: 14px; font-weight: 500; color: var(--text-2); margin-left: 2px; }
+.tile .sub { color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile canvas { width: 100%; height: 34px; display: block; margin-top: 6px; }
+.tile .flagdot { margin-left: auto; }
+
+/* layout */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+  box-shadow: var(--shadow); min-width: 0; }
+.card h2 { font-size: 14px; margin: 0; font-weight: 650; }
+.card .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.card .head .meta { color: var(--text-3); font-size: 12px; margin-left: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend b { color: var(--text); font-weight: 600; }
+.chart { position: relative; height: 190px; }
+.chart canvas { width: 100%; height: 100%; display: block; }
+.wide { grid-column: 1 / -1; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); z-index: 5;
+  min-width: 140px; display: none; white-space: nowrap; }
+.tip .t { color: var(--text-3); margin-bottom: 3px; }
+.tip .r { display: flex; align-items: center; gap: 6px; }
+.tip .r b { margin-left: auto; padding-left: 12px; font-weight: 600; }
+.cores { display: grid; gap: 4px; margin-top: 12px; }
+.core { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: var(--text-3); }
+.core .bar { width: 100%; height: 38px; background: var(--surface-2); border-radius: 4px; position: relative; overflow: hidden; }
+.core .bar div { position: absolute; left: 0; right: 0; bottom: 0; background: var(--s1); border-radius: 4px 4px 0 0; transition: height .4s; }
+
+/* flags */
+.side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 16px; max-height: calc(100vh - 32px); }
+.flags { display: flex; flex-direction: column; min-height: 0; }
+.flaglist { overflow: auto; display: flex; flex-direction: column; gap: 8px; margin: 0 -4px; padding: 0 4px; }
+.flag { border: 1px solid var(--border); border-left: 3px solid var(--c); border-radius: 8px; padding: 9px 11px; background: var(--surface); }
+.flag .top { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ci); }
+.flag .top .cat { color: var(--text-3); font-weight: 600; }
+.flag .top .age { margin-left: auto; color: var(--text-3); font-weight: 500; text-transform: none; letter-spacing: 0; }
+.flag .title { font-weight: 600; margin: 3px 0 2px; }
+.flag .detail { color: var(--text-2); font-size: 12.5px; word-break: break-word; }
+.flag .acts { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.flag .acts button { font-size: 12px; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface-2); cursor: pointer; }
+.flag .acts button.danger { color: var(--critical-ink); }
+.flag.ign { opacity: .55; }
+.ok { text-align: center; padding: 22px 0; color: var(--text-2); }
+.ok svg { width: 34px; height: 34px; display: block; margin: 0 auto 6px; }
+details.more summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 6px 2px; }
+details.more > div { display: flex; flex-direction: column; gap: 8px; }
+.sev-ico { width: 13px; height: 13px; flex: none; }
+
+/* table area */
+.lower { margin-top: 16px; }
+.tabs { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.tabs button { border: 0; background: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: var(--text-2); font-weight: 550; }
+.tabs button.on { background: var(--surface-2); color: var(--text); }
+.tabs .count { color: var(--text-3); font-weight: 500; margin-left: 3px; }
+.search { margin-left: auto; border: 1px solid var(--border); background: var(--surface-2); border-radius: 8px;
+  padding: 6px 10px; min-width: 220px; color: var(--text); font: inherit; }
+.tablewrap { overflow: auto; max-height: 560px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 11.5px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  padding: 6px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); cursor: pointer; white-space: nowrap; user-select: none; }
+th.r, td.r { text-align: right; }
+td { padding: 6px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+tr:hover td { background: var(--surface-2); }
+tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
+.pname { font-weight: 550; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ppath { color: var(--text-3); font-size: 11.5px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mbar { display: inline-block; width: 54px; height: 6px; border-radius: 3px; background: var(--surface-2); vertical-align: middle; margin-left: 8px; overflow: hidden; }
+.mbar div { height: 100%; background: var(--s1); border-radius: 3px; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; }
+.badge.warn { color: var(--serious-ink); border-color: color-mix(in srgb, var(--serious) 50%, transparent); }
+.badge.good { color: var(--good-ink); }
+.rowbtn { font-size: 12px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; }
+.spark { width: 70px; height: 18px; vertical-align: middle; }
+.ev { display: flex; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--grid); font-size: 13px; align-items: center; }
+.ev .when { color: var(--text-3); width: 72px; flex: none; }
+.empty { color: var(--text-3); padding: 18px; text-align: center; }
+
+/* modal */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.modal.on { display: flex; }
+.modal .box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; max-width: 440px; width: 100%; }
+.modal h3 { margin: 0 0 6px; }
+.modal p { color: var(--text-2); margin: 0 0 16px; word-break: break-word; }
+.modal .btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.modal .btns button { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; }
+.modal .btns .primary { background: var(--critical); border-color: var(--critical); color: #fff; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
+  padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; }
+.toast.on { opacity: 1; }
+
+/* fans */
+.fan-banner { display: flex; gap: 14px; align-items: center; justify-content: space-between; border: 1px solid var(--border);
+  background: var(--surface-2); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.fan-banner span { color: var(--text-2); }
+.fan-banner.warn { border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
+.fan-top { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.fanmodes button:disabled { opacity: .45; cursor: default; }
+.fan-custom { display: inline-flex; gap: 8px; align-items: center; color: var(--text-2); font-size: 13px; }
+.fan-custom input { width: 160px; accent-color: var(--s1); }
+.fan-desc { color: var(--text-3); font-size: 12.5px; margin: 8px 0 10px; }
+.fanlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 10px; }
+.fan { display: flex; align-items: center; gap: 12px; }
+.fan svg { width: 34px; height: 34px; color: var(--s1); flex: none; }
+.fan .spin { transform-origin: 17px 17px; animation: spin linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.fan .info { flex: 1; min-width: 0; }
+.fan .rpm { font-size: 20px; font-weight: 650; }
+.fan .rpm small { font-size: 12px; color: var(--text-2); font-weight: 500; }
+.fan .bar { height: 6px; border-radius: 3px; background: var(--surface-2); margin-top: 4px; overflow: hidden; }
+.fan .bar div { height: 100%; background: var(--s1); border-radius: 3px; transition: width .6s; }
+@media (prefers-reduced-motion: reduce) { .fan .spin { animation: none; } }
+
+/* storage */
+.views button { font-weight: 600; }
+[hidden] { display: none !important; }
+.diskline { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 2px 0 12px; }
+.diskline .big { font-size: 30px; font-weight: 650; letter-spacing: -.02em; }
+.diskline .sub { color: var(--text-2); }
+.stackbar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; gap: 2px; background: var(--surface); }
+.stackbar div { height: 100%; min-width: 2px; }
+.stackbar div:first-child { border-radius: 6px 0 0 6px; } .stackbar div:last-child { border-radius: 0 6px 6px 0; }
+.progress { height: 3px; background: var(--surface-2); border-radius: 2px; margin-top: 12px; overflow: hidden; }
+.progress div { height: 100%; width: 30%; background: var(--s1); border-radius: 2px; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+.st-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+.crumbs button { border: 0; background: none; padding: 3px 6px; border-radius: 6px; cursor: pointer; color: var(--text-2); }
+.crumbs button:hover { background: var(--surface-2); color: var(--text); }
+.crumbs button:last-child { color: var(--text); font-weight: 600; }
+.crumbs span { color: var(--text-3); }
+.exlist { max-height: 640px; overflow: auto; }
+.exrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) 90px auto; gap: 10px; align-items: center; padding: 6px 6px;
+  border-radius: 8px; cursor: default; }
+.exrow.dir { cursor: pointer; }
+.exrow:hover { background: var(--surface-2); }
+.exrow .nm { min-width: 0; }
+.exrow .nm div:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.exrow .bar { height: 6px; border-radius: 3px; background: var(--surface-2); margin-top: 5px; overflow: hidden; }
+.exrow .bar div { height: 100%; border-radius: 3px; background: var(--s1); }
+.exrow .sz { text-align: right; font-weight: 600; }
+.exrow .sz small { display: block; color: var(--text-3); font-weight: 400; font-size: 11px; }
+.exrow .acts { display: flex; gap: 4px; opacity: 0; }
+.exrow:hover .acts { opacity: 1; }
+.exrow svg.ic { width: 18px; height: 18px; color: var(--text-3); }
+.sg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface-2);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; font-weight: 550; font-size: 13px; }
+.btn.primary { background: var(--s1); border-color: var(--s1); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+.sglist { display: flex; flex-direction: column; gap: 8px; max-height: 640px; overflow: auto; }
+.sg { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.sg .row1 { display: flex; align-items: baseline; gap: 8px; }
+.sg .row1 b { font-weight: 600; }
+.sg .row1 .size { margin-left: auto; font-weight: 650; }
+.sg .why { color: var(--text-2); font-size: 12.5px; margin: 3px 0 7px; }
+.sg .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.sg .items { margin: 6px 0 0; font-size: 12px; }
+.sg .items div { display: flex; gap: 8px; padding: 3px 0; border-top: 1px solid var(--grid); align-items: center; }
+.sg .items .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.safety { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; display: inline-flex; gap: 4px; align-items: center; }
+.safety.safe { color: var(--good-ink); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.safety.review { color: var(--warning-ink); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.safety.careful { color: var(--critical-ink); background: color-mix(in srgb, var(--critical) 14%, transparent); }
+.fda-steps { margin: 6px 0; padding-left: 20px; color: var(--text-2); }
+.fda-steps li { margin: 2px 0; }
+.fda-why { display: block; color: var(--text-3); font-size: 12px; margin-top: 4px; }
+.modal .choices { display: flex; flex-direction: column; gap: 6px; margin: -6px 0 16px; max-height: 260px; overflow: auto; font-size: 12.5px; color: var(--text-2); }
+@media (max-width: 1100px) { .st-grid { grid-template-columns: 1fr; } .exrow .acts { opacity: 1; } }
+
+@media (max-width: 1280px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .main { grid-template-columns: 1fr; } .side { position: static; max-height: none; } }
+@media (max-width: 760px) {
+  .wrap { padding: 14px 16px 40px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .charts { grid-template-columns: 1fr; }
+  .search { min-width: 0; width: 100%; margin-left: 0; }
+  .ppath { max-width: 180px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--s1)"/>
+        <path d="M5 17h5l3-7 5 13 3-6h6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>Pulse</h1>
+    </div>
+    <div class="seg views" id="views"><button data-v="perf" class="on">Performance</button><button data-v="storage">Storage</button></div>
+    <div class="machine" id="machine">Connecting…</div>
+    <div class="spacer"></div>
+    <span class="pill" id="health"><span class="dot" style="background:var(--text-3)"></span>Starting…</span>
+    <div class="seg" id="range">
+      <button data-s="300">5m</button><button data-s="900" class="on">15m</button><button data-s="3600">1h</button>
+    </div>
+    <button class="ghost" id="pause" title="Freeze the charts">Pause</button>
+    <button class="ghost" id="notify" title="macOS notifications for serious problems">Alerts on</button>
+    <button class="ghost" id="theme" title="Toggle light/dark">◐</button>
+  </header>
+
+  <div id="view-perf">
+  <section class="tiles" id="tiles"></section>
+
+  <div class="main">
+    <div>
+      <div class="charts">
+        <div class="card wide">
+          <div class="head"><h2>CPU</h2><span class="meta" id="cpu-meta"></span></div>
+          <div class="legend" id="lg-cpu"></div>
+          <div class="chart" id="ch-cpu"></div>
+          <div class="cores" id="cores"></div>
+        </div>
+        <div class="card wide" id="fan-card" hidden>
+          <div class="head"><h2>Fans</h2><span class="meta" id="fan-meta"></span></div>
+          <div class="fan-banner" id="fan-setup" hidden>
+            <div><b>Enable fan control</b><br><span>Reading fan speeds works as-is. Setting them needs a small helper that runs as root — macOS will ask for your password once. Fans always return to automatic if Pulse quits.</span></div>
+            <button class="btn primary" id="fan-install">Enable…</button>
+          </div>
+          <div class="fan-banner warn" id="fan-conflict" hidden>
+            <div><b>Macs Fan Control is also running</b><br><span>Two fan controllers will fight over the same fans. Quit it to let Pulse take over.</span></div>
+            <button class="btn" id="fan-quit-mfc">Quit Macs Fan Control</button>
+          </div>
+          <div class="fan-top">
+            <div class="seg fanmodes" id="fan-modes">
+              <button data-m="auto">Auto</button><button data-m="balanced">Balanced</button><button data-m="performance">High Performance</button><button data-m="max">Full throttle</button><button data-m="custom">Custom</button>
+            </div>
+            <label class="fan-custom" id="fan-custom" hidden>Speed <input type="range" min="0" max="100" step="5" id="fan-pct"><b class="num" id="fan-pct-v"></b></label>
+          </div>
+          <div class="fan-desc" id="fan-desc"></div>
+          <div class="fanlist" id="fan-list"></div>
+          <div class="legend" id="lg-fan"></div>
+          <button class="ghost" id="fan-remove" hidden style="float:right;font-size:12px;margin-top:-4px">Remove fan helper…</button>
+          <div class="chart" id="ch-fan" style="height:150px"></div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>Memory</h2><span class="meta" id="mem-meta"></span></div>
+          <div class="legend" id="lg-mem"></div>
+          <div class="chart" id="ch-mem"></div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>Temperature</h2><span class="meta" id="temp-meta"></span></div>
+          <div class="legend" id="lg-temp"></div>
+          <div class="chart" id="ch-temp"></div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>Network</h2><span class="meta" id="net-meta"></span></div>
+          <div class="legend" id="lg-net"></div>
+          <div class="chart" id="ch-net"></div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>Disk activity</h2><span class="meta" id="disk-meta"></span></div>
+          <div class="legend" id="lg-disk"></div>
+          <div class="chart" id="ch-disk"></div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>GPU</h2><span class="meta" id="gpu-meta"></span></div>
+          <div class="chart" id="ch-gpu" style="height:150px"></div>
+        </div>
+        <div class="card">
+          <div class="head"><h2>Power draw</h2><span class="meta" id="pwr-meta"></span></div>
+          <div class="chart" id="ch-pwr" style="height:150px"></div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="card flags">
+        <div class="head"><h2>Flags</h2><span class="meta" id="flag-meta"></span></div>
+        <div class="flaglist" id="flaglist"><div class="empty">Collecting a baseline…</div></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="card lower">
+    <div class="tabs" id="tabs">
+      <button data-t="apps" class="on">Apps<span class="count" id="c-apps"></span></button>
+      <button data-t="procs">Processes<span class="count" id="c-procs"></span></button>
+      <button data-t="ports">Network listeners<span class="count" id="c-ports"></span></button>
+      <button data-t="startup">Startup items<span class="count" id="c-startup"></span></button>
+      <button data-t="events">Activity log<span class="count" id="c-events"></span></button>
+      <input class="search" id="search" placeholder="Filter by name, path or pid" autocomplete="off">
+    </div>
+    <div class="tablewrap" id="tablewrap"></div>
+  </div>
+  </div>
+
+  <div id="view-storage" hidden>
+    <div class="card">
+      <div class="head"><h2>Startup disk</h2><span class="meta" id="st-scan"></span>
+        <button class="ghost" id="st-rescan">Rescan</button></div>
+      <div class="diskline"><div class="big num" id="st-free">–</div><div class="sub" id="st-used"></div></div>
+      <div class="stackbar" id="st-bar"></div>
+      <div class="legend" id="st-legend" style="margin-top:10px"></div>
+      <div class="progress" id="st-progress" hidden><div></div></div>
+      <div class="fan-banner" id="deep" hidden style="margin:12px 0 0">
+        <div><b id="deep-title">Measure system folders</b><br><span id="deep-text"></span>
+          <span class="fda-why">Runs once, read-only, after you approve the macOS admin prompt — nothing keeps admin rights afterwards. Results stay private to you, and sensitive system folders are recorded as totals only. Pulse won't delete anything here; use the Finder buttons, and macOS will ask for your password before deleting.</span></div>
+        <button class="btn" id="deep-run">Measure…</button>
+      </div>
+      <div class="fan-banner warn" id="fda" hidden style="margin:12px 0 0">
+        <div><b>Let the scanner see everything — read-only</b><br><span id="fda-text"></span>
+          <ol class="fda-steps"><li>Click <b>Set up…</b> — System Settings opens at Full Disk Access, and Finder shows <b>Pulse Scanner</b>.</li>
+          <li>Drag <b>Pulse Scanner</b> into the list (or click + and pick it), and make sure it's switched on.</li>
+          <li>Come back and click <b>Rescan</b>.</li></ol>
+          <span class="fda-why">Only the scanner gets this access. It can list folders and read sizes, but it contains no code that can change or delete files. The part of Pulse that deletes things doesn't get Full Disk Access, so macOS still blocks it from protected folders unless you approve a specific one.</span></div>
+        <button class="btn" id="fda-open">Set up…</button>
+      </div>
+    </div>
+    <div class="st-grid">
+      <div class="card">
+        <div class="head"><h2>Explore</h2><span class="meta" id="ex-meta"></span></div>
+        <div class="crumbs" id="ex-crumbs"></div>
+        <div id="ex-list" class="exlist"><div class="empty">Scanning your disk…</div></div>
+      </div>
+      <div class="card">
+        <div class="head"><h2>Cleanup suggestions</h2><span class="meta" id="sg-meta"></span></div>
+        <div class="sg-actions">
+          <button class="btn primary" id="sg-safe">Clean all safe items</button>
+          <button class="btn" id="sg-claude"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" fill="currentColor"/></svg>Ask Claude to clean up</button>
+        </div>
+        <div id="sg-list" class="sglist"><div class="empty">Suggestions appear as the scan finds things.</div></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="head"><h2>Largest files</h2><span class="meta">over 250 MB</span></div>
+      <div class="tablewrap" id="lf-list" style="max-height:420px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal"><div class="box">
+  <h3 id="m-title"></h3><p id="m-body"></p><div class="choices" id="m-list" hidden></div>
+  <div class="btns" id="m-btns"></div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+// ------------------------------------------------------------------ state
+const S = { samples: [], meta: null, live: null, range: 900, paused: false, tab: "apps",
+  sort: { apps: ["cpu", -1], procs: ["cpu", -1] }, filter: "", highlightPid: null };
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const fmtBytes = (n, d = 1) => {
+  if (n == null || isNaN(n)) return "–";
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (Math.abs(n) >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i < 2 ? Math.round(n) : n.toFixed(n >= 100 ? 0 : d)) + " " + u[i];
+};
+const fmtRate = (n) => fmtBytes(n) + "/s";
+const fmtGB = (n) => (n / 2 ** 30).toFixed(1) + " GB";
+const fmtDur = (s) => {
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  return Math.floor(s / 86400) + "d " + Math.floor((s % 86400) / 3600) + "h";
+};
+const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const get = (o, path) => path.split(".").reduce((a, k) => (a == null ? a : a[k]), o);
+
+const SEV = {
+  good: { label: "OK", c: "--good", ci: "--good-ink",
+    icon: '<svg class="sev-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M4.5 8.2l2.3 2.2 4.7-4.8" stroke="var(--surface)" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>' },
+  info: { label: "Note", c: "--text-3", ci: "--text-2",
+    icon: '<svg class="sev-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 7v4.5M8 4.6v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>' },
+  warning: { label: "Warning", c: "--warning", ci: "--warning-ink",
+    icon: '<svg class="sev-ico" viewBox="0 0 16 16"><path d="M8 1.5l7 12.5H1z" fill="currentColor"/><path d="M8 6v4M8 12v.1" stroke="var(--surface)" stroke-width="1.7" stroke-linecap="round"/></svg>' },
+  serious: { label: "Serious", c: "--serious", ci: "--serious-ink",
+    icon: '<svg class="sev-ico" viewBox="0 0 16 16"><path d="M5 1h6l4 4v6l-4 4H5l-4-4V5z" fill="currentColor"/><path d="M8 4.5v4.5M8 11.3v.1" stroke="var(--surface)" stroke-width="1.8" stroke-linecap="round"/></svg>' },
+  critical: { label: "Critical", c: "--critical", ci: "--critical-ink",
+    icon: '<svg class="sev-ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5.3 5.3l5.4 5.4M10.7 5.3l-5.4 5.4" stroke="var(--surface)" stroke-width="1.8" stroke-linecap="round"/></svg>' },
+};
+const RANK = { info: 0, warning: 1, serious: 2, critical: 3 };
+
+// ------------------------------------------------------------------ chart
+class TimeChart {
+  constructor(host, opts) {
+    this.host = host; this.o = opts;
+    this.cv = document.createElement("canvas"); host.appendChild(this.cv);
+    this.tip = document.createElement("div"); this.tip.className = "tip"; host.appendChild(this.tip);
+    this.hover = null;
+    this.cv.addEventListener("mousemove", (e) => { const r = this.cv.getBoundingClientRect(); this.hover = e.clientX - r.left; this.draw(); });
+    this.cv.addEventListener("mouseleave", () => { this.hover = null; this.tip.style.display = "none"; this.draw(); });
+    new ResizeObserver(() => this.draw()).observe(host);
+  }
+  setData(samples, t0, t1) { this.data = samples; this.t0 = t0; this.t1 = t1; this.draw(); }
+  draw() {
+    const { cv, o } = this; const data = this.data || [];
+    const dpr = window.devicePixelRatio || 1;
+    const W = this.host.clientWidth, H = this.host.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const padL = 48, padR = 8, padT = 8, padB = 22;
+    const pw = W - padL - padR, ph = H - padT - padB;
+    const series = o.series.map((s) => ({ ...s, color: css(s.color) }));
+    const t0 = this.t0, t1 = this.t1;
+    const X = (t) => padL + ((t - t0) / (t1 - t0)) * pw;
+
+    // values (stack if needed)
+    const rows = data.map((d) => {
+      let acc = 0;
+      const vals = series.map((s) => { const v = s.get(d); return v == null ? null : v; });
+      const tops = vals.map((v) => (o.stacked ? (acc += v || 0) : v));
+      return { t: d.t, vals, tops };
+    });
+    let max = o.max != null ? o.max : 0;
+    if (o.max == null) {
+      for (const r of rows) for (const v of r.tops) if (v != null && v > max) max = v;
+      max = niceMax(max * 1.1 || o.minMax || 1, o.minMax);
+    }
+    let min = o.min != null ? o.min : 0;
+    if (o.autoMin && rows.length) {
+      let lo = Infinity; for (const r of rows) for (const v of r.tops) if (v != null && v < lo) lo = v;
+      min = Math.max(0, Math.floor((lo - 5) / 10) * 10);
+      max = Math.max(min + 10, Math.ceil((max + 2) / 10) * 10);
+    }
+    const Y = (v) => padT + ph - ((v - min) / (max - min || 1)) * ph;
+
+    // grid + y labels
+    g.font = "11px -apple-system, sans-serif"; g.textBaseline = "middle"; g.textAlign = "right";
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const v = min + ((max - min) * i) / ticks, y = Math.round(Y(v)) + 0.5;
+      g.strokeStyle = css("--grid"); g.lineWidth = 1; g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke();
+      g.fillStyle = css("--text-3"); g.fillText(o.fmtAxis ? o.fmtAxis(v) : Math.round(v), padL - 8, y);
+    }
+    // x labels
+    g.textAlign = "center"; g.textBaseline = "top";
+    const span = t1 - t0, step = span <= 300 ? 60 : span <= 900 ? 180 : 600;
+    for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) {
+      const x = X(t); if (x < padL + 20 || x > W - padR - 20) continue;
+      g.fillStyle = css("--text-3");
+      g.fillText(new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), x, H - padB + 6);
+    }
+    if (!rows.length) return;
+
+    // plot (split segments on gaps > 3 intervals)
+    const gapLimit = 35;   // background mode samples every 10s; only break lines on real gaps
+    const segs = []; let cur = [];
+    rows.forEach((r, i) => { if (i && r.t - rows[i - 1].t > gapLimit) { segs.push(cur); cur = []; } cur.push(r); });
+    segs.push(cur);
+    g.save(); g.beginPath(); g.rect(padL, padT - 2, pw, ph + 4); g.clip();
+    const surface = css("--surface");
+    for (const seg of segs) {
+      if (o.stacked) {
+        for (let si = series.length - 1; si >= 0; si--) {
+          g.beginPath();
+          seg.forEach((r, i) => { const x = X(r.t), y = Y(r.tops[si]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+          for (let i = seg.length - 1; i >= 0; i--) g.lineTo(X(seg[i].t), Y(si ? seg[i].tops[si - 1] : min));
+          g.closePath(); g.fillStyle = series[si].color; g.globalAlpha = 0.85; g.fill(); g.globalAlpha = 1;
+        }
+        // 2px surface gap between bands
+        for (let si = 0; si < series.length - 1; si++) {
+          g.beginPath(); seg.forEach((r, i) => { const x = X(r.t), y = Y(r.tops[si]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+          g.strokeStyle = surface; g.lineWidth = 2; g.lineJoin = "round"; g.stroke();
+        }
+      } else {
+        series.forEach((s, si) => {
+          const pts = seg.filter((r) => r.vals[si] != null);
+          if (!pts.length) return;
+          if (o.fill && series.length === 1) {
+            const grad = g.createLinearGradient(0, padT, 0, padT + ph);
+            grad.addColorStop(0, hexA(s.color, 0.35)); grad.addColorStop(1, hexA(s.color, 0.02));
+            g.beginPath(); pts.forEach((r, i) => { const x = X(r.t), y = Y(r.vals[si]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+            g.lineTo(X(pts[pts.length - 1].t), Y(min)); g.lineTo(X(pts[0].t), Y(min)); g.closePath(); g.fillStyle = grad; g.fill();
+          }
+          g.beginPath(); pts.forEach((r, i) => { const x = X(r.t), y = Y(r.vals[si]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+          g.strokeStyle = s.color; g.lineWidth = 2; g.lineJoin = "round"; g.lineCap = "round"; g.stroke();
+        });
+      }
+    }
+    // threshold line
+    if (o.threshold != null && o.threshold < max) {
+      const y = Math.round(Y(o.threshold)) + 0.5;
+      g.setLineDash([4, 4]); g.strokeStyle = css("--serious"); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke(); g.setLineDash([]);
+    }
+    g.restore();
+
+    // hover
+    if (this.hover != null && this.hover >= padL) {
+      const tt = t0 + ((this.hover - padL) / pw) * (t1 - t0);
+      let best = rows[0];
+      for (const r of rows) if (Math.abs(r.t - tt) < Math.abs(best.t - tt)) best = r;
+      const x = X(best.t);
+      g.strokeStyle = css("--text-3"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(x) + 0.5, padT); g.lineTo(Math.round(x) + 0.5, padT + ph); g.stroke();
+      series.forEach((s, si) => {
+        const v = o.stacked ? best.tops[si] : best.vals[si]; if (v == null) return;
+        g.beginPath(); g.arc(x, Y(v), 4.5, 0, Math.PI * 2); g.fillStyle = s.color; g.fill();
+        g.lineWidth = 2; g.strokeStyle = surface; g.stroke();
+      });
+      const fmt = o.fmt || ((v) => v.toFixed(1));
+      let html = `<div class="t">${clock(best.t)}</div>`;
+      const order = o.stacked ? [...series.keys()].reverse() : [...series.keys()];
+      for (const si of order) {
+        const v = best.vals[si];
+        html += `<div class="r"><i class="dot" style="background:${series[si].color}"></i>${esc(series[si].label)}<b class="num">${v == null ? "–" : fmt(v)}</b></div>`;
+      }
+      if (o.stacked && o.totalLabel) html += `<div class="r" style="margin-top:3px;color:var(--text-2)">${o.totalLabel}<b class="num">${fmt(best.tops[series.length - 1])}</b></div>`;
+      this.tip.innerHTML = html; this.tip.style.display = "block";
+      const tw = this.tip.offsetWidth;
+      this.tip.style.left = Math.min(W - tw - 4, Math.max(4, x + 14 > W - tw ? x - tw - 14 : x + 14)) + "px";
+      this.tip.style.top = "6px";
+    }
+  }
+}
+function niceMax(v, floor) {
+  if (floor && v < floor) v = floor;
+  const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p;
+}
+function niceBytesMax(v) {
+  const k = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
+  let unit = 1024; while (v > unit * 512) unit *= 1024;
+  for (const m of k) if (unit * m >= v) return unit * m;
+  return unit * 1024;
+}
+function hexA(hex, a) {
+  const h = hex.replace("#", ""); const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function sparkline(cv, vals, color, max) {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (!W) return;
+  cv.width = W * dpr; cv.height = H * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const v = vals.filter((x) => x != null); if (v.length < 2) return;
+  const mx = max || Math.max(...v) * 1.15 || 1, mn = 0;
+  const X = (i) => (i / (v.length - 1)) * W, Y = (x) => H - 2 - ((x - mn) / (mx - mn)) * (H - 4);
+  const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, hexA(color, 0.3)); grad.addColorStop(1, hexA(color, 0));
+  g.beginPath(); v.forEach((x, i) => (i ? g.lineTo(X(i), Y(x)) : g.moveTo(X(i), Y(x))));
+  g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fillStyle = grad; g.fill();
+  g.beginPath(); v.forEach((x, i) => (i ? g.lineTo(X(i), Y(x)) : g.moveTo(X(i), Y(x))));
+  g.strokeStyle = color; g.lineWidth = 1.6; g.lineJoin = "round"; g.stroke();
+}
+
+// ------------------------------------------------------------------ charts setup
+const pct = (v) => v.toFixed(0) + "%";
+const C = {};
+function makeCharts(interval) {
+  C.cpu = new TimeChart($("ch-cpu"), { interval, stacked: true, max: 100, fmt: (v) => v.toFixed(1) + "%", fmtAxis: pct, totalLabel: "Total",
+    series: [{ label: "User", color: "--s1", get: (d) => get(d, "cpu.user") }, { label: "System", color: "--s2", get: (d) => get(d, "cpu.sys") }] });
+  C.mem = new TimeChart($("ch-mem"), { interval, stacked: true, fmt: fmtGB, fmtAxis: (v) => Math.round(v / 2 ** 30) + " GB", totalLabel: "Used + cached",
+    series: [
+      { label: "App", color: "--s1", get: (d) => get(d, "mem.app") },
+      { label: "Wired", color: "--s2", get: (d) => get(d, "mem.wired") },
+      { label: "Compressed", color: "--s3", get: (d) => get(d, "mem.comp") },
+      { label: "Cached files", color: "--s4", get: (d) => get(d, "mem.cached") }] });
+  C.temp = new TimeChart($("ch-temp"), { interval, autoMin: true, threshold: 90, fmt: (v) => v.toFixed(1) + "°C", fmtAxis: (v) => Math.round(v) + "°",
+    series: [
+      { label: "CPU hottest", color: "--s1", get: (d) => get(d, "temp.cpu_max") },
+      { label: "CPU average", color: "--s2", get: (d) => get(d, "temp.cpu_avg") },
+      { label: "GPU", color: "--s3", get: (d) => get(d, "temp.gpu") },
+      { label: "Battery", color: "--s4", get: (d) => get(d, "temp.battery") },
+      { label: "SSD", color: "--s5", get: (d) => get(d, "temp.ssd") }] });
+  C.net = new TimeChart($("ch-net"), { interval, fmt: fmtRate, fmtAxis: (v) => fmtBytes(v, 0),
+    series: [{ label: "Download", color: "--s1", get: (d) => get(d, "net.rx") }, { label: "Upload", color: "--s2", get: (d) => get(d, "net.tx") }] });
+  C.disk = new TimeChart($("ch-disk"), { interval, fmt: fmtRate, fmtAxis: (v) => fmtBytes(v, 0),
+    series: [{ label: "Read", color: "--s1", get: (d) => get(d, "disk.r") }, { label: "Write", color: "--s2", get: (d) => get(d, "disk.w") }] });
+  C.fan = new TimeChart($("ch-fan"), { interval, fmt: (v) => Math.round(v).toLocaleString() + " RPM", fmtAxis: (v) => (v / 1000).toFixed(v >= 1000 && v % 1000 ? 1 : 0) + "k",
+    series: [{ label: "Fan 1", color: "--s1", get: (d) => d.fans?.[0]?.[0] }, { label: "Fan 2", color: "--s2", get: (d) => d.fans?.[1]?.[0] }] });
+  C.fan.draw = ((orig) => function () { const l = S.samples[S.samples.length - 1]; const f = l?.fans; if (f?.length) this.o.max = niceMax(Math.max(...f.map((x) => x[2])) * 1.05); orig(); })(C.fan.draw.bind(C.fan));
+  C.gpu = new TimeChart($("ch-gpu"), { interval, max: 100, fill: true, fmt: (v) => v.toFixed(0) + "%", fmtAxis: pct,
+    series: [{ label: "GPU busy", color: "--s1", get: (d) => d.gpu }] });
+  C.pwr = new TimeChart($("ch-pwr"), { interval, fill: true, minMax: 10, fmt: (v) => v.toFixed(1) + " W", fmtAxis: (v) => Math.round(v) + " W",
+    series: [{ label: "System power", color: "--s1", get: (d) => d.power }] });
+  // byte charts use power-of-two axes
+  for (const k of ["net", "disk"]) {
+    const ch = C[k]; const orig = ch.draw.bind(ch);
+    ch.draw = function () {
+      const data = this.data || []; let mx = 0;
+      for (const d of data) for (const s of this.o.series) { const v = s.get(d); if (v > mx) mx = v; }
+      this.o.max = niceBytesMax(Math.max(mx * 1.1, 64 * 1024)); orig();
+    };
+  }
+  C.mem.draw = ((orig) => function () { const l = S.samples[S.samples.length - 1]; if (l && l.mem) this.o.max = l.mem.total; orig(); })(C.mem.draw.bind(C.mem));
+}
+
+function legend(id, items) {
+  $(id).innerHTML = items.map(([label, color, val]) =>
+    `<span><i style="background:var(${color})"></i>${esc(label)} <b class="num">${val}</b></span>`).join("");
+}
+
+// ------------------------------------------------------------------ render
+function visible() {
+  const last = S.samples.length ? S.samples[S.samples.length - 1].t : Date.now() / 1000;
+  // Until enough history exists, fit the chart to what we have (min 1 minute).
+  const first = S.samples.length ? S.samples[0].t : last;
+  const t0 = Math.min(last - 60, Math.max(last - S.range, first));
+  return { data: S.samples.filter((s) => s.t >= t0), t0, t1: last };
+}
+
+function renderCharts() {
+  if (S.paused) return;
+  const { data, t0, t1 } = visible();
+  for (const k in C) C[k].setData(data, t0, t1);
+  const l = S.samples[S.samples.length - 1]; if (!l) return;
+  const avg = (key) => { const v = data.map((d) => get(d, key)).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const peak = (key) => { const v = data.map((d) => get(d, key)).filter((x) => x != null); return v.length ? Math.max(...v) : null; };
+  if (l.cpu) {
+    legend("lg-cpu", [["User", "--s1", l.cpu.user.toFixed(0) + "%"], ["System", "--s2", l.cpu.sys.toFixed(0) + "%"]]);
+    $("cpu-meta").textContent = `avg ${avg("cpu.total")?.toFixed(0)}% · peak ${peak("cpu.total")?.toFixed(0)}% · load ${l.load}`;
+    renderCores(l.cpu.cores);
+  }
+  if (l.mem) {
+    const m = l.mem;
+    legend("lg-mem", [["App", "--s1", fmtGB(m.app)], ["Wired", "--s2", fmtGB(m.wired)], ["Compressed", "--s3", fmtGB(m.comp)], ["Cached", "--s4", fmtGB(m.cached)]]);
+    $("mem-meta").textContent = `swap ${fmtBytes(m.swap)} · ${["", "normal", "elevated", "", "critical"][m.pressure] || "normal"} pressure`;
+  }
+  if (l.temp) {
+    const t = l.temp, f = (v) => (v == null ? "–" : v.toFixed(0) + "°");
+    legend("lg-temp", [["CPU hottest", "--s1", f(t.cpu_max)], ["CPU avg", "--s2", f(t.cpu_avg)], ["GPU", "--s3", f(t.gpu)], ["Battery", "--s4", f(t.battery)], ["SSD", "--s5", f(t.ssd)]]);
+    $("temp-meta").textContent = `peak ${peak("temp.cpu_max")?.toFixed(0)}°C · ${l.sensors} sensors`;
+  }
+  if (l.net) {
+    legend("lg-net", [["Download", "--s1", fmtRate(l.net.rx)], ["Upload", "--s2", fmtRate(l.net.tx)]]);
+    const tot = data.reduce((a, d) => a + ((get(d, "net.rx") || 0) + (get(d, "net.tx") || 0)) * (S.meta?.interval || 2), 0);
+    $("net-meta").textContent = `${fmtBytes(tot)} moved in view`;
+  }
+  if (l.disk) {
+    legend("lg-disk", [["Read", "--s1", fmtRate(l.disk.r)], ["Write", "--s2", fmtRate(l.disk.w)]]);
+    const w = data.reduce((a, d) => a + (get(d, "disk.w") || 0) * (S.meta?.interval || 2), 0);
+    $("disk-meta").textContent = `${fmtBytes(w)} written in view`;
+  }
+  $("gpu-meta").textContent = l.gpu != null ? `now ${l.gpu}% · avg ${avg("gpu")?.toFixed(0)}%` : "not available";
+  $("pwr-meta").textContent = l.power != null ? `now ${l.power} W · avg ${avg("power")?.toFixed(1)} W` : "no battery telemetry";
+}
+
+const FAN_SVG = (rpm) => `<svg viewBox="0 0 34 34"><g class="spin" style="animation-duration:${rpm > 100 ? Math.max(0.15, 60 / rpm * 12).toFixed(2) : 0}s;${rpm > 100 ? "" : "animation:none"}">
+  ${[0, 120, 240].map((a) => `<path d="M17 17c-1-6 1-11 5-12 3 0 3 4 0 7z" fill="currentColor" opacity=".85" transform="rotate(${a} 17 17)"/>`).join("")}</g>
+  <circle cx="17" cy="17" r="3" fill="var(--surface)" stroke="currentColor" stroke-width="1.5"/><circle cx="17" cy="17" r="15.5" fill="none" stroke="var(--border)" stroke-width="1.5"/></svg>`;
+function renderFans() {
+  const l = S.samples[S.samples.length - 1], fan = S.live?.fan;
+  const fans = l?.fans || [];
+  $("fan-card").hidden = !fans.length; if (!fans.length || !fan) return;
+  $("fan-setup").hidden = fan.installed;
+  $("fan-remove").hidden = !fan.installed;
+  $("fan-conflict").hidden = !(fan.conflict?.length && fan.installed && fan.mode !== "auto");
+  document.querySelectorAll("#fan-modes button").forEach((b) => { b.classList.toggle("on", b.dataset.m === fan.mode); b.disabled = !fan.installed && b.dataset.m !== "auto"; });
+  $("fan-custom").hidden = fan.mode !== "custom";
+  if (document.activeElement !== $("fan-pct")) $("fan-pct").value = fan.pct;
+  $("fan-pct-v").textContent = $("fan-pct").value + "%";
+  const manualByOther = fan.mode === "auto" && fans.some((f) => f[4]);
+  $("fan-desc").textContent = fan.error ? "⚠ " + fan.error : manualByOther
+    ? "Fans are in manual mode, set by another app (probably Macs Fan Control). Pick a Pulse mode to take over."
+    : fan.modes[fan.mode] + (fan.level != null ? ` · target ${fan.level}%` : "");
+  $("fan-meta").textContent = fan.mode === "auto" ? "controlled by macOS" : "controlled by Pulse";
+  $("fan-list").innerHTML = fans.map((f, i) => { const pct = f[2] ? Math.min(100, (f[0] / f[2]) * 100) : 0;
+    return `<div class="fan">${FAN_SVG(f[0])}<div class="info"><div class="rpm num">${Math.round(f[0]).toLocaleString()}<small> RPM · Fan ${i + 1}</small></div>
+      <div class="bar"><div style="width:${pct}%"></div></div><div class="sub" style="color:var(--text-3);font-size:11.5px;margin-top:3px">${pct.toFixed(0)}% of max · range ${f[1].toLocaleString()}–${f[2].toLocaleString()}</div></div></div>`; }).join("");
+  legend("lg-fan", fans.slice(0, 2).map((f, i) => [`Fan ${i + 1}`, i ? "--s2" : "--s1", Math.round(f[0]).toLocaleString() + " RPM"]));
+}
+$("fan-modes").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-m]"); if (!b || b.disabled) return;
+  const m = b.dataset.m;
+  const go = async () => { try { await post("/api/fan/mode", { mode: m, pct: +$("fan-pct").value }); poll(true); } catch (x) { toast(x.message); } };
+  if (m === "max") modal("Run fans at full throttle?", "Both fans will spin at maximum speed until you pick another mode. It's loud but harmless.", [["Full throttle", go, true]]);
+  else go();
+});
+$("fan-pct").addEventListener("input", () => ($("fan-pct-v").textContent = $("fan-pct").value + "%"));
+$("fan-pct").addEventListener("change", async () => { await post("/api/fan/mode", { mode: "custom", pct: +$("fan-pct").value }); poll(true); });
+$("fan-install").onclick = async () => {
+  toast("Waiting for your approval in the macOS dialog…");
+  try { await post("/api/fan/install"); toast("Fan control enabled"); poll(true); } catch (x) { toast(x.message === "Cancelled" ? "Cancelled" : "Couldn't enable: " + x.message); }
+};
+$("fan-remove").onclick = () => modal("Remove the fan helper?", "Fans go back to automatic control and the root helper is uninstalled. macOS will ask for your password.", [
+  ["Remove", async () => { try { await post("/api/fan/uninstall"); toast("Fan helper removed"); poll(true); } catch (x) { toast(x.message); } }, true]]);
+$("fan-quit-mfc").onclick = () => { const pid = S.live?.fan?.conflict?.[0]; if (pid) askKill(pid); };
+
+function renderCores(cores) {
+  const el = $("cores"); const m = S.meta;
+  el.style.gridTemplateColumns = `repeat(${cores.length}, minmax(0,1fr))`;
+  if (el.children.length !== cores.length) {
+    // On Apple Silicon, efficiency cores come first.
+    const e = m?.ecores || 0;
+    el.innerHTML = cores.map((_, i) => `<div class="core" title=""><div class="bar"><div></div></div><span>${i < e ? "E" : "P"}${i < e ? i + 1 : i - e + 1}</span></div>`).join("");
+  }
+  cores.forEach((v, i) => {
+    const c = el.children[i]; c.querySelector(".bar div").style.height = Math.max(2, v) + "%";
+    c.title = `Core ${i + 1}: ${v.toFixed(0)}%`;
+  });
+}
+
+function tileFlag(cats) {
+  const fl = (S.live?.flags || []).filter((f) => !f.ignored && cats.includes(f.category) && RANK[f.severity] >= 1);
+  if (!fl.length) return "";
+  const worst = fl.reduce((a, b) => (RANK[b.severity] > RANK[a.severity] ? b : a));
+  const s = SEV[worst.severity];
+  return `<span class="flagdot" style="color:var(${s.ci})" title="${esc(worst.title)}">${s.icon}</span>`;
+}
+
+function renderTiles() {
+  const l = S.samples[S.samples.length - 1]; if (!l) return;
+  const live = S.live || {}; const tail = S.samples.slice(-90);
+  const b = live.battery || {}, du = live.disk_usage || {};
+  const tiles = [
+    { k: "cpu", lbl: "CPU", cats: ["CPU"], val: l.cpu ? `${l.cpu.total.toFixed(0)}<small>%</small>` : "–",
+      sub: `${S.meta?.ncpu} cores · load ${l.load.toFixed(0)}`, spark: tail.map((d) => get(d, "cpu.total")), max: 100 },
+    { k: "mem", lbl: "Memory", cats: ["Memory"], val: l.mem ? `${(l.mem.used / 2 ** 30).toFixed(1)}<small>/ ${Math.round(l.mem.total / 2 ** 30)} GB</small>` : "–",
+      sub: l.mem ? `swap ${fmtBytes(l.mem.swap)}` : "", spark: tail.map((d) => get(d, "mem.used")), max: l.mem?.total },
+    { k: "temp", lbl: "Chip temp", cats: ["Temperature"], val: l.temp?.cpu_max != null ? `${l.temp.cpu_max.toFixed(0)}<small>°C</small>` : "–",
+      sub: live.thermal_limit < 100 ? `throttled to ${live.thermal_limit}%` : "no throttling", spark: tail.map((d) => get(d, "temp.cpu_max")) },
+    { k: "gpu", lbl: "GPU", cats: [], val: l.gpu != null ? `${l.gpu}<small>%</small>` : "–", sub: l.temp?.gpu ? `${l.temp.gpu.toFixed(0)}°C` : "", spark: tail.map((d) => d.gpu), max: 100 },
+    { k: "disk", lbl: "Disk", cats: ["Disk"], val: du.total ? `${fmtBytes(du.free, 0).replace(" ", "<small>")} free</small>` : "–",
+      sub: du.total ? `${du.pct}% of ${fmtBytes(du.total, 0)} used` : "", spark: tail.map((d) => (get(d, "disk.r") || 0) + (get(d, "disk.w") || 0)) },
+    { k: "net", lbl: "Network", cats: ["Network"], val: l.net ? `${fmtBytes(l.net.rx, 0).replace(" ", "<small>")}/s</small>` : "–",
+      sub: l.net ? `↓ ${fmtRate(l.net.rx)} · ↑ ${fmtRate(l.net.tx)}` : "", spark: tail.map((d) => (get(d, "net.rx") || 0) + (get(d, "net.tx") || 0)) },
+    { k: "bat", lbl: b.percent != null ? "Battery" : "Power", cats: ["Battery"],
+      val: b.percent != null ? `${b.percent}<small>%</small>` : l.power != null ? `${l.power}<small>W</small>` : "–",
+      sub: b.percent != null ? `${b.external ? (b.charging ? "charging" : "plugged in") : b.minutes_left ? fmtDur(b.minutes_left * 60) + " left" : "on battery"} · ${b.health ?? "?"}% health` : "",
+      spark: tail.map((d) => d.power) },
+  ];
+  const el = $("tiles");
+  if (el.children.length !== tiles.length) el.innerHTML = tiles.map((t) => `<div class="tile" id="tile-${t.k}"><div class="lbl"></div><div class="val num"></div><div class="sub"></div><canvas></canvas></div>`).join("");
+  const s1 = css("--s1");
+  tiles.forEach((t) => {
+    const n = $("tile-" + t.k);
+    n.querySelector(".lbl").innerHTML = esc(t.lbl) + tileFlag(t.cats);
+    n.querySelector(".val").innerHTML = t.val;
+    n.querySelector(".sub").textContent = t.sub;
+    sparkline(n.querySelector("canvas"), t.spark, s1, t.max);
+  });
+}
+
+function renderHeader() {
+  const m = S.meta, live = S.live; if (!m) return;
+  $("machine").textContent = `${m.host} · ${m.chip} · macOS ${m.macos}` + (live?.uptime ? ` · up ${fmtDur(live.uptime)}` : "") + (live ? ` · ${live.proc_count} processes` : "")
+    + (live?.overhead?.cpu != null ? ` · Pulse itself: ${live.overhead.cpu.toFixed(1)}% CPU, ${fmtBytes(live.overhead.rss)}` : "");
+  const fl = (live?.flags || []).filter((f) => !f.ignored);
+  const worst = fl.reduce((a, f) => Math.max(a, RANK[f.severity]), -1);
+  const counts = {}; fl.forEach((f) => { if (RANK[f.severity] >= 1) counts[f.severity] = (counts[f.severity] || 0) + 1; });
+  let txt = "All good", sev = "good";
+  if (worst >= 1) { sev = Object.keys(RANK).find((k) => RANK[k] === worst); const n = Object.values(counts).reduce((a, b) => a + b, 0); txt = `${n} issue${n > 1 ? "s" : ""} need attention`; }
+  else if (live && !live.warm) { txt = "Learning baseline…"; sev = "info"; }
+  $("health").innerHTML = `<span style="color:var(${SEV[sev].ci});display:inline-flex">${SEV[sev].icon}</span>${txt}`;
+  $("notify").textContent = live?.notify ? "Alerts on" : "Alerts off";
+  document.title = worst >= 2 ? `(${fl.filter((f) => RANK[f.severity] >= 2).length}) Pulse` : "Pulse";
+}
+
+function flagCard(f) {
+  const s = SEV[f.severity];
+  const now = Date.now() / 1000;
+  const acts = [];
+  if (f.pid) acts.push(`<button data-act="show" data-pid="${f.pid}">Show process</button>`);
+  if (f.action === "kill") acts.push(`<button class="danger" data-act="kill" data-pid="${f.pid}">Quit…</button>`);
+  if (f.action === "simctl") acts.push(`<button class="danger" data-act="simctl">Shut down simulators…</button>`);
+  acts.push(`<button data-act="ignore" data-key="${esc(f.key)}" data-on="${f.ignored ? 0 : 1}">${f.ignored ? "Un-ignore" : "Ignore"}</button>`);
+  return `<div class="flag ${f.ignored ? "ign" : ""}" style="--c:var(${s.c});--ci:var(${s.ci})">
+    <div class="top">${s.icon}${s.label}<span class="cat">· ${esc(f.category)}</span><span class="age">${fmtDur(now - f.since)}</span></div>
+    <div class="title">${esc(f.title)}</div><div class="detail">${esc(f.detail)}</div>
+    <div class="acts">${acts.join("")}</div></div>`;
+}
+
+function renderFlags() {
+  const live = S.live; if (!live) return;
+  const fl = live.flags;
+  const main = fl.filter((f) => !f.ignored && RANK[f.severity] >= 1);
+  const notes = fl.filter((f) => !f.ignored && f.severity === "info");
+  const ign = fl.filter((f) => f.ignored);
+  $("flag-meta").textContent = `${main.length} active · ${notes.length} notes`;
+  let html = main.length ? main.map(flagCard).join("")
+    : `<div class="ok"><span style="color:var(--good-ink)">${SEV.good.icon.replace('sev-ico', 'sev-ico" style="width:34px;height:34px;display:block;margin:0 auto 6px')}</span>Nothing needs attention right now.</div>`;
+  if (notes.length) html += `<details class="more" ${S.openNotes ? "open" : ""} data-k="openNotes"><summary>${notes.length} note${notes.length > 1 ? "s" : ""}</summary><div>${notes.map(flagCard).join("")}</div></details>`;
+  if (ign.length) html += `<details class="more" ${S.openIgn ? "open" : ""} data-k="openIgn"><summary>${ign.length} ignored</summary><div>${ign.map(flagCard).join("")}</div></details>`;
+  const list = $("flaglist"); const st = list.scrollTop; list.innerHTML = html; list.scrollTop = st;
+}
+
+// ------------------------------------------------------------------ tables
+const PROC_FLAGS = () => { const m = {}; (S.live?.flags || []).forEach((f) => { if (f.pid && !f.ignored) m[f.pid] = f; }); return m; };
+function sigBadge(p) {
+  if (p.system) return `<span class="badge">Apple</span>`;
+  const s = p.sig; if (!s) return `<span class="badge">checking…</span>`;
+  if (s.signed === false) return `<span class="badge warn">Unsigned</span>`;
+  if (s.apple) return `<span class="badge">Apple</span>`;
+  if (s.adhoc && !s.team) return `<span class="badge" title="Ad-hoc signed — typical for Homebrew, dev builds and scripts">Ad-hoc</span>`;
+  const who = (s.authority || "").replace(/^(Developer ID Application|Apple Development|Apple Distribution): /, "").replace(/\s*\(.*\)$/, "");
+  return `<span class="badge good" title="${esc(s.authority || "")}">${esc(who || s.team || "Signed")}</span>`;
+}
+function th(tab, key, label, right) {
+  const [k, d] = S.sort[tab] || [];
+  return `<th class="${right ? "r" : ""}" data-sort="${key}">${label}${k === key ? (d < 0 ? " ↓" : " ↑") : ""}</th>`;
+}
+function sortRows(tab, rows) {
+  const [k, d] = S.sort[tab];
+  return rows.sort((a, b) => { const x = a[k], y = b[k]; return (typeof x === "string" ? x.localeCompare(y) : (x ?? -1) - (y ?? -1)) * d; });
+}
+function matches(...fields) { const q = S.filter.toLowerCase(); return !q || fields.some((f) => String(f ?? "").toLowerCase().includes(q)); }
+
+function renderTable() {
+  const live = S.live; if (!live) return;
+  $("c-apps").textContent = live.apps.length; $("c-procs").textContent = live.proc_count;
+  $("c-ports").textContent = live.ports.length; $("c-startup").textContent = live.startup.length;
+  $("c-events").textContent = live.events.length;
+  const wrap = $("tablewrap"); const st = wrap.scrollTop; let html = "";
+  const ram = S.samples[S.samples.length - 1]?.mem?.total || 1;
+  const flags = PROC_FLAGS();
+  const s1 = css("--s1");
+  if (S.tab === "apps") {
+    const rows = sortRows("apps", live.apps.filter((a) => matches(a.app)));
+    const maxCpu = Math.max(100, ...rows.map((r) => r.cpu));
+    html = `<table><thead><tr>${th("apps", "app", "App")}${th("apps", "count", "Processes", 1)}${th("apps", "cpu", "CPU", 1)}${th("apps", "rss", "Memory", 1)}<th></th></tr></thead><tbody>` +
+      rows.map((a) => {
+        const flagged = a.pids.some((p) => flags[p]);
+        return `<tr class="${flagged ? "hl" : ""}"><td><div class="pname">${esc(a.app)}</div></td><td class="r num">${a.count}</td>
+        <td class="r num">${a.cpu.toFixed(1)}%<span class="mbar"><div style="width:${Math.min(100, (a.cpu / maxCpu) * 100)}%"></div></span></td>
+        <td class="r num">${fmtBytes(a.rss)}<span class="mbar"><div style="width:${Math.min(100, (a.rss / ram) * 100 * 4)}%"></div></span></td>
+        <td class="r"><button class="rowbtn" data-act="filter" data-q="${esc(a.app)}">Details</button></td></tr>`;
+      }).join("") + `</tbody></table>`;
+  } else if (S.tab === "procs") {
+    const hp = S.highlightPid;
+    let rows = live.procs.filter((p) => matches(p.name, p.path, p.pid, p.app, p.user));
+    rows = sortRows("procs", rows);
+    html = `<table><thead><tr>${th("procs", "name", "Process")}${th("procs", "pid", "PID", 1)}${th("procs", "user", "User")}${th("procs", "cpu", "CPU", 1)}<th>Trend</th>${th("procs", "rss", "Memory", 1)}${th("procs", "age", "Running", 1)}<th>Signed by</th><th></th></tr></thead><tbody>` +
+      rows.map((p) => {
+        const f = flags[p.pid];
+        return `<tr class="${f || p.pid === hp ? "hl" : ""}" data-pid="${p.pid}" title="${esc(f ? f.title : "")}">
+        <td><div class="pname">${f ? `<span style="color:var(${SEV[f.severity].ci})">${SEV[f.severity].icon}</span> ` : ""}${esc(p.name)}</div><div class="ppath" title="${esc(p.path)}">${esc(p.path)}</div></td>
+        <td class="r num">${p.pid}</td><td>${esc(p.user)}</td>
+        <td class="r num">${p.cpu.toFixed(1)}%</td><td><canvas class="spark" data-spark="${p.cpu_hist.join(",")}"></canvas></td>
+        <td class="r num">${fmtBytes(p.rss)}</td><td class="r num">${fmtDur(p.age)}</td><td>${sigBadge(p)}</td>
+        <td class="r">${p.uid === S.meta.uid ?`<button class="rowbtn" data-act="kill" data-pid="${p.pid}">Quit…</button>` : ""}</td></tr>`;
+      }).join("") + `</tbody></table>` +
+      (live.proc_count > live.procs.length ? `<div class="empty">Showing the ${live.procs.length} busiest of ${live.proc_count} processes.</div>` : "");
+  } else if (S.tab === "ports") {
+    const rows = live.ports.filter((p) => matches(p.name, p.port, p.pid));
+    html = rows.length ? `<table><thead><tr><th>Program</th><th class="r">PID</th><th class="r">Port</th><th>Reachable from</th></tr></thead><tbody>` +
+      rows.map((p) => `<tr><td class="pname">${esc(p.name)}</td><td class="r num">${p.pid}</td><td class="r num">${esc(p.port)}</td>
+        <td>${p.public ? `<span class="badge warn">Any device on your network</span>` : `<span class="badge">This Mac only</span>`}</td></tr>`).join("") + `</tbody></table>`
+      : `<div class="empty">No programs are listening for connections.</div>`;
+  } else if (S.tab === "startup") {
+    const rows = live.startup.filter((s) => matches(s.label, s.program, s.file));
+    html = rows.length ? `<table><thead><tr><th>Item</th><th>Type</th><th>Runs</th><th>Status</th></tr></thead><tbody>` +
+      rows.map((s) => `<tr><td><div class="pname">${esc(s.label)}</div><div class="ppath">${esc(s.file)}</div></td><td>${esc(s.kind)}</td>
+        <td><div class="ppath" title="${esc(s.program || "")}">${esc(s.program || "–")}</div></td>
+        <td>${s.risky ? `<span class="badge warn">Risky location</span>` : s.exists === false ? `<span class="badge warn">Program missing</span>` : s.disabled ? `<span class="badge">Disabled</span>` : `<span class="badge">${s.keepalive ? "Always running" : "At login"}</span>`}</td></tr>`).join("") +
+      `</tbody></table>` : `<div class="empty">No third-party startup items.</div>`;
+  } else {
+    const rows = live.events.filter((e) => matches(e.text));
+    html = rows.length ? rows.map((e) => { const s = SEV[e.severity] || SEV.info;
+      return `<div class="ev"><span class="when num">${clock(e.t)}</span><span style="color:var(${s.ci});display:inline-flex">${s.icon}</span><span>${esc(e.text)}</span></div>`; }).join("")
+      : `<div class="empty">Nothing has happened yet.</div>`;
+  }
+  wrap.innerHTML = html; wrap.scrollTop = st;
+  wrap.querySelectorAll("canvas.spark").forEach((c) => sparkline(c, c.dataset.spark.split(",").map(Number), s1, 100));
+}
+
+// ------------------------------------------------------------------ actions
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Pulse": "1" }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 3200); }
+function modal(title, body, buttons, list) {
+  $("m-title").textContent = title; $("m-body").textContent = body; $("m-body").style.whiteSpace = "pre-line";
+  $("m-list").innerHTML = (list || []).map((l) => `<div>${esc(l)}</div>`).join(""); $("m-list").hidden = !list;
+  $("m-btns").innerHTML = ""; $("modal").classList.add("on");
+  [["Cancel", null], ...buttons].forEach(([label, fn, primary]) => {
+    const b = document.createElement("button"); b.textContent = label; if (primary) b.className = "primary";
+    b.onclick = async () => { $("modal").classList.remove("on"); if (fn) try { await fn(); } catch (e) { toast(e.message); } };
+    $("m-btns").appendChild(b);
+  });
+}
+function askKill(pid) {
+  const p = S.live.procs.find((x) => x.pid === pid);
+  const name = p ? p.app : "pid " + pid;
+  modal(`Quit ${name}?`, `${p ? p.path : ""}\n\nUnsaved work in this process may be lost. "Quit" asks it to close; "Force quit" stops it immediately.`, [
+    ["Force quit", async () => { await post("/api/kill", { pid, force: true }); toast(`Force-quit ${name}`); }],
+    ["Quit", async () => { await post("/api/kill", { pid }); toast(`Asked ${name} to quit`); }, true],
+  ]);
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-act]");
+  if (b) {
+    const act = b.dataset.act;
+    if (act === "kill") askKill(+b.dataset.pid);
+    if (act === "show") { S.highlightPid = +b.dataset.pid; switchTab("procs"); $("search").value = S.filter = String(b.dataset.pid); renderTable(); $("tablewrap").scrollIntoView({ behavior: "smooth", block: "center" }); }
+    if (act === "filter") { switchTab("procs"); $("search").value = S.filter = b.dataset.q; renderTable(); }
+    if (act === "ignore") { await post("/api/ignore", { key: b.dataset.key, ignore: b.dataset.on === "1" }); poll(true); }
+    if (act === "simctl") modal("Shut down all iOS simulators?", "Every booted simulator device will be shut down. Running simulator apps will close.", [
+      ["Shut down", async () => { await post("/api/simctl"); toast("Simulators shutting down"); }, true]]);
+    return;
+  }
+  const h = e.target.closest("th[data-sort]");
+  if (h) { const k = h.dataset.sort, cur = S.sort[S.tab]; S.sort[S.tab] = [k, cur[0] === k ? -cur[1] : (k === "name" || k === "app" || k === "user") ? 1 : -1]; renderTable(); }
+});
+document.addEventListener("toggle", (e) => { if (e.target.matches?.("details.more")) S[e.target.dataset.k] = e.target.open; }, true);
+function switchTab(t) { S.tab = t; document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("on", x.dataset.t === t)); }
+$("tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-t]"); if (b) { switchTab(b.dataset.t); S.highlightPid = null; renderTable(); } });
+$("search").addEventListener("input", (e) => { S.filter = e.target.value.trim(); S.highlightPid = null; renderTable(); });
+$("range").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.range = +b.dataset.s;
+  document.querySelectorAll("#range button").forEach((x) => x.classList.toggle("on", x === b)); renderCharts(); });
+$("pause").onclick = () => { S.paused = !S.paused; $("pause").textContent = S.paused ? "Resume" : "Pause"; if (!S.paused) renderCharts(); };
+$("notify").onclick = async () => { await post("/api/notify", { on: !S.live?.notify }); poll(true); };
+$("theme").onclick = () => {
+  const r = document.documentElement; const dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  r.dataset.theme = dark ? "light" : "dark"; try { localStorage.setItem("pulse-theme", r.dataset.theme); } catch {}
+  renderAll();
+};
+try { const t = localStorage.getItem("pulse-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderAll());
+
+// ------------------------------------------------------------------ storage view
+const ST = { state: null, path: null, node: null, large: [], view: "perf", timer: null, busy: false };
+const FOLDER = '<svg class="ic" viewBox="0 0 20 20"><path d="M2 5.5A1.5 1.5 0 013.5 4h4l1.6 1.8h7.4A1.5 1.5 0 0118 7.3v7.2a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 012 14.5z" fill="currentColor" opacity=".55"/></svg>';
+const FILE = '<svg class="ic" viewBox="0 0 20 20"><path d="M5 2.5h6.5L15 6v11.5H5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M11.5 2.5V6H15" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+const SAFETY = { safe: "Safe to delete", review: "Review first", careful: "Keep unless sure" };
+const ago = (t) => { const d = (Date.now() / 1000 - t) / 86400; return d < 1 ? "today" : d < 2 ? "yesterday" : d < 60 ? Math.round(d) + " days ago" : d < 730 ? Math.round(d / 30) + " months ago" : Math.round(d / 365) + " years ago"; };
+
+function setView(v) {
+  ST.view = v;
+  document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  $("view-perf").hidden = v !== "perf"; $("view-storage").hidden = v !== "storage";
+  document.querySelectorAll("#range, #pause").forEach((e) => (e.style.display = v === "perf" ? "" : "none"));
+  try { localStorage.setItem("pulse-view", v); } catch {}
+  if (v === "storage") storageInit(); else renderAll();
+}
+$("views").addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (b) setView(b.dataset.v); });
+
+async function storageInit() {
+  await loadState();
+  if (ST.state.status === "idle") { await post("/api/storage/scan"); await loadState(); }
+  if (!ST.path) ST.path = ST.state.home;
+  await openPath(ST.path);
+  loadLarge();
+  schedule();
+}
+function schedule() {
+  clearTimeout(ST.timer);
+  if (ST.view !== "storage") return;
+  ST.timer = setTimeout(async () => {
+    const was = ST.state?.status;
+    await loadState();
+    if (ST.state.status === "scanning" || was !== ST.state.status) { await openPath(ST.path, true); loadLarge(); }
+    schedule();
+  }, ST.state?.status === "scanning" ? 2000 : 20000);
+}
+async function loadState() {
+  try { ST.state = await (await fetch("/api/storage/state")).json(); } catch { return; }
+  renderDisk(); renderSuggestions();
+}
+async function loadLarge() { try { ST.large = await (await fetch("/api/storage/large")).json(); renderLarge(); } catch {} }
+async function openPath(path, quiet) {
+  if (!quiet) $("ex-list").innerHTML = `<div class="empty">Loading…</div>`;
+  const r = await fetch("/api/storage/node?path=" + encodeURIComponent(path));
+  if (!r.ok) { if (!quiet) $("ex-list").innerHTML = `<div class="empty">${ST.state?.status === "scanning" ? "Still scanning this folder…" : "Couldn't read this folder."}</div>`; ST.path = path; renderCrumbs(); return; }
+  ST.node = await r.json(); ST.path = ST.node.path; renderCrumbs(); renderExplorer();
+}
+
+function renderDisk() {
+  const st = ST.state, d = st.disk;
+  $("st-free").innerHTML = `${fmtBytes(d.free)} <span style="font-size:15px;font-weight:500;color:var(--text-2)">free</span>`;
+  $("st-used").textContent = `${fmtBytes(d.used)} used of ${fmtBytes(d.total)} (${d.pct}%)`;
+  const scanning = st.status === "scanning";
+  $("st-progress").hidden = !scanning;
+  $("st-scan").textContent = scanning ? `Scanning… ${st.files.toLocaleString()} files · ${fmtBytes(st.bytes)} · ${st.current || ""}`.slice(0, 140)
+    : st.finished ? `Scanned ${ago(st.finished)} · ${st.files.toLocaleString()} files${st.denied ? ` · ${st.denied} folders protected by macOS` : ""}` : "";
+  $("st-rescan").disabled = scanning; $("st-rescan").textContent = scanning ? "Scanning…" : "Rescan";
+  const hidden = st.scanned_total != null ? d.used - st.scanned_total : 0;
+  const sys = st.system_scan || {};
+  $("deep").hidden = !(st.status === "done" && (hidden > 20 * 2 ** 30 || sys.finished));
+  $("deep-run").disabled = !!sys.running || ST.deepBusy;
+  $("deep-run").textContent = sys.running || ST.deepBusy ? "Measuring…" : sys.finished ? "Measure again…" : "Measure…";
+  $("deep-title").textContent = sys.finished ? `System folders measured ${ago(sys.finished)}` : "Measure system folders";
+  $("deep-text").textContent = sys.finished
+    ? `Folders like /private/var and /Library are now included. ${hidden > 20 * 2 ** 30 ? fmtBytes(hidden) + " is still unaccounted for (privacy-protected folders, other volumes or purgeable space)." : ""}`
+    : `${fmtBytes(hidden)} of used space is in places Pulse can't see yet. Some of it is in system folders only an administrator can read (/private/var, parts of /Library).`;
+  const locs = st.hidden_locations || [];
+  $("fda").hidden = !(st.status === "done" && locs.length);
+  $("fda-text").textContent = `macOS kept the scanner out of: ${locs.join(", ")}. About ${fmtBytes(hidden)} of used space isn't accounted for yet (some of that is simulator disk images and system snapshots, which are listed separately).`;
+  // composition bar from the scanned tree
+  const root = ST.rootNode;
+  const parts = [];
+  if (root) {
+    const by = Object.fromEntries(root.children.map((c) => [c.name, c.size]));
+    const home = ST.homeSize || 0;
+    parts.push(["Your home folder", "--s1", home]);
+    parts.push(["Applications", "--s2", by.Applications || 0]);
+    parts.push(["Library (shared)", "--s3", by.Library || 0]);
+    parts.push(["System data", "--s4", (by.private || 0) + (by.usr || 0) + (by.opt || 0) + (by.cores || 0)]);
+    const other = root.size - parts.reduce((a, p) => a + p[2], 0);
+    parts.push(["Other users & folders", "--s5", Math.max(0, other)]);
+    const unscanned = Math.max(0, d.used - root.size);
+    parts.push(["Snapshots, purgeable & protected", "--text-3", unscanned]);
+  } else parts.push(["Used", "--s1", d.used]);
+  parts.push(["Free", "--surface-2", d.free]);
+  $("st-bar").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
+    `<div style="flex:${v};background:var(${c})" title="${esc(l)}: ${fmtBytes(v)}"></div>`).join("");
+  $("st-legend").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
+    `<span><i style="background:var(${c});${c === "--surface-2" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
+  // fetch root + home totals occasionally for the bar
+  if (!ST.rootNode || Date.now() - (ST.rootAt || 0) > (scanning ? 4000 : 60000)) {
+    ST.rootAt = Date.now();
+    fetch("/api/storage/node?path=/").then((r) => (r.ok ? r.json() : null)).then((n) => {
+      if (!n) return; ST.rootNode = n;
+      return fetch("/api/storage/node?path=" + encodeURIComponent(st.home)).then((r) => (r.ok ? r.json() : null)).then((h) => { if (h) ST.homeSize = h.size; renderDisk(); });
+    }).catch(() => {});
+  }
+}
+
+function renderCrumbs() {
+  const parts = ST.path.split("/").filter(Boolean);
+  let acc = ""; const html = [`<button data-go="/">Macintosh HD</button>`];
+  for (const p of parts) { acc += "/" + p; html.push(`<span>›</span><button data-go="${esc(acc)}">${esc(p)}</button>`); }
+  if (ST.state && ST.path !== ST.state.home) html.push(`<button data-go="${esc(ST.state.home)}" style="margin-left:auto;font-weight:500">⌂ Home</button>`);
+  $("ex-crumbs").innerHTML = html.join("");
+}
+function renderExplorer() {
+  const n = ST.node; if (!n) return;
+  const max = Math.max(1, ...n.children.map((c) => c.size));
+  $("ex-meta").textContent = `${fmtBytes(n.size)}${n.files ? ` · ${n.files.toLocaleString()} files` : ""}${n.done ? "" : " · still scanning"}`;
+  const rows = n.children.filter((c) => c.size > 0).map((c) => {
+    const pct = n.size ? (c.size / n.size) * 100 : 0;
+    const known = c.known ? ` <span class="safety ${(ST.state.suggestions.find((s) => s.id === c.known) || {}).safety || "review"}">tip</span>` : "";
+    return `<div class="exrow ${c.dir ? "dir" : ""}" ${c.dir ? `data-go="${esc(c.path)}"` : ""}>
+      ${c.dir ? FOLDER : FILE}
+      <div class="nm"><div title="${esc(c.path)}">${esc(c.name)}${known}</div><div class="bar"><div style="width:${(c.size / max) * 100}%"></div></div></div>
+      <div class="sz num">${fmtBytes(c.size)}<small>${pct >= 0.1 ? pct.toFixed(pct < 10 ? 1 : 0) + "%" : "&lt;0.1%"}</small></div>
+      <div class="acts"><button class="rowbtn" data-reveal="${esc(c.path)}" title="Show in Finder">Finder</button>
+      ${c.deletable ? `<button class="rowbtn" data-del="${esc(c.path)}" data-size="${c.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</div></div>`;
+  });
+  if (n.other > 0) rows.push(`<div class="exrow"><span></span><div class="nm" style="color:var(--text-3)">${n.other_count ? n.other_count + " more items" : "Smaller files"}</div><div class="sz num" style="color:var(--text-3)">${fmtBytes(n.other)}</div><div></div></div>`);
+  $("ex-list").innerHTML = rows.join("") || `<div class="empty">Empty folder.</div>`;
+}
+
+function renderSuggestions() {
+  const sg = ST.state.suggestions || [];
+  const safe = sg.filter((s) => s.safety === "safe" && s.how !== "info");
+  const safeTotal = safe.reduce((a, s) => a + s.size, 0);
+  $("sg-meta").textContent = sg.length ? `${fmtBytes(safeTotal)} safe to reclaim` : "";
+  $("sg-safe").disabled = !safe.length; $("sg-safe").textContent = safe.length ? `Clean all safe items (${fmtBytes(safeTotal)})` : "Clean all safe items";
+  $("sg-claude").disabled = ST.state.status === "scanning" && !sg.length;
+  $("sg-list").innerHTML = sg.length ? sg.map((s, i) => {
+    const acts = [];
+    if (s.how === "contents") acts.push(`<button class="rowbtn" data-sg="${i}">Clear</button>`);
+    if (s.how.startsWith("action:")) acts.push(`<button class="rowbtn" data-sg="${i}">${s.id === "trash" ? "Empty Trash" : "Clean up"}</button>`);
+    if (s.path) acts.push(`<button class="rowbtn" data-go="${esc(s.path)}">Explore</button><button class="rowbtn" data-reveal="${esc(s.path)}">Finder</button>`);
+    const items = (s.items || []).slice(0, 8).map((it) => `<div><span class="p" title="${esc(it.path)}">${esc(it.project || it.path)}</span><span class="num">${fmtBytes(it.size)}</span><span style="color:var(--text-3)">${it.mtime ? ago(it.mtime) : ""}</span>${it.runtime ? `<button class="rowbtn" data-rt="${it.runtime}" data-name="${esc(it.path)}">Delete…</button>` : `<button class="rowbtn" data-del="${esc(it.path)}" data-size="${it.size}">Delete…</button>`}</div>`).join("");
+    if (s.items) acts.unshift(`<button class="rowbtn" data-sg="${i}">Delete all ${s.items.length}</button>`);
+    return `<div class="sg"><div class="row1"><span class="safety ${s.safety}">${SAFETY[s.safety]}</span><b>${esc(s.name)}</b><span class="size num">${fmtBytes(s.size)}</span></div>
+      <div class="why">${esc(s.why)}</div><div class="acts">${acts.join("")}</div>${items ? `<div class="items">${items}${s.items.length > 8 ? `<div style="color:var(--text-3)">+ ${s.items.length - 8} more</div>` : ""}</div>` : ""}</div>`;
+  }).join("") : `<div class="empty">${ST.state.status === "scanning" ? "Looking for things you can clean up…" : "Nothing obvious to clean up."}</div>`;
+}
+
+function renderLarge() {
+  $("lf-list").innerHTML = ST.large.length ? `<table><thead><tr><th>File</th><th class="r">Size</th><th>Modified</th><th></th></tr></thead><tbody>` +
+    ST.large.slice(0, 150).map((f) => `<tr><td><div class="pname">${esc(f.path.split("/").pop())}</div><div class="ppath">${esc(f.path)}</div></td>
+      <td class="r num">${fmtBytes(f.size)}</td><td>${ago(f.mtime)}</td>
+      <td class="r" style="white-space:nowrap"><button class="rowbtn" data-reveal="${esc(f.path)}">Finder</button>
+      ${f.deletable ? `<button class="rowbtn" data-del="${esc(f.path)}" data-size="${f.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</td></tr>`).join("") + `</tbody></table>`
+    : `<div class="empty">${ST.state?.status === "scanning" ? "Still looking…" : "No files over 250 MB."}</div>`;
+}
+
+async function doDelete(path, mode) {
+  const r = await post("/api/storage/delete", { path, mode });
+  toast(mode === "trash" ? `Moved to Trash: ${path.split("/").pop()} (${fmtBytes(r.moved)}) — empty the Trash to free the space`
+    : `Freed ${fmtBytes(r.freed)}`);
+}
+function askDelete(path, size) {
+  modal(`Delete “${path.split("/").pop()}”?`, `${path}\n\n${fmtBytes(+size)}. Moving to the Trash lets you restore it later, but the space is only freed once the Trash is emptied.`, [
+    ["Delete permanently", async () => { await doDelete(path, "permanent"); await refreshStorage(); }],
+    ["Move to Trash", async () => { await doDelete(path, "trash"); await refreshStorage(); }, true],
+  ]);
+}
+async function refreshStorage() { await loadState(); await openPath(ST.path, true); loadLarge(); }
+
+async function runSuggestion(s) {
+  if (s.how === "contents") { const r = await post("/api/storage/delete", { path: s.path, mode: "contents" }); return r.freed; }
+  if (s.how.startsWith("action:")) { const r = await post("/api/storage/action", { name: s.how.slice(7) }); return r.freed; }
+  if (s.items) { let f = 0; for (const it of s.items) { try {
+    const r = it.runtime ? await post("/api/storage/action", { name: "sim_runtime:" + it.runtime }) : await post("/api/storage/delete", { path: it.path, mode: "permanent" });
+    f += r.freed; } catch {} } return f; }
+  return 0;
+}
+function askSuggestion(s) {
+  const verb = s.how === "contents" ? "Clear" : s.items ? `Delete ${s.items.length} items in` : "Clean up";
+  const list = s.items ? s.items.map((it) => `${it.path} — ${fmtBytes(it.size)}`) : null;
+  modal(`${verb} ${s.name}?`, `${s.why}\n\nAbout ${fmtBytes(s.size)} will be permanently deleted.`, [
+    [verb, async () => { toast("Working…"); const f = await runSuggestion(s); toast(`Freed ${fmtBytes(f)}`); await refreshStorage(); }, true]], list);
+}
+$("sg-safe").onclick = () => {
+  const safe = (ST.state.suggestions || []).filter((s) => s.safety === "safe" && s.how !== "info");
+  const total = safe.reduce((a, s) => a + s.size, 0);
+  modal(`Clean ${safe.length} safe items?`, `These rebuild or re-download automatically. About ${fmtBytes(total)} will be permanently deleted. Quit Xcode and other dev tools first for best results.`, [
+    ["Clean up", async () => {
+      let freed = 0;
+      for (const s of safe) { toast(`Cleaning ${s.name}…`); try { freed += await runSuggestion(s); } catch (e) { toast(`${s.name}: ${e.message}`); } }
+      toast(`Done — freed ${fmtBytes(freed)}`); await refreshStorage();
+    }, true]], safe.map((s) => `${s.name} — ${fmtBytes(s.size)}`));
+};
+$("sg-claude").onclick = async () => {
+  const r = await post("/api/storage/claude");
+  if (r.how === "terminal") toast("Opened Claude Code in Terminal with your storage report");
+  else toast("Prompt copied — paste it into Claude");
+};
+$("deep-run").onclick = async () => {
+  ST.deepBusy = true; renderDisk(); toast("Approve the macOS prompt to start (read-only)…");
+  try { await post("/api/storage/deep-scan"); toast("System folders measured"); ST.rootNode = null; await refreshStorage(); }
+  catch (x) { toast(x.message === "Cancelled" ? "Cancelled" : "Couldn't measure: " + x.message); }
+  ST.deepBusy = false; renderDisk();
+};
+$("st-rescan").onclick = async () => { await post("/api/storage/scan"); ST.rootNode = null; await loadState(); schedule(); };
+
+document.addEventListener("click", async (e) => {
+  const rv = e.target.closest("[data-reveal]");
+  if (rv) { e.stopPropagation(); post("/api/storage/reveal", { path: rv.dataset.reveal }).catch((x) => toast(x.message)); return; }
+  const del = e.target.closest("[data-del]");
+  if (del) { e.stopPropagation(); askDelete(del.dataset.del, del.dataset.size); return; }
+  const rt = e.target.closest("[data-rt]");
+  if (rt) { e.stopPropagation(); modal(`Delete ${rt.dataset.name}?`, "Simulators using this iOS version stop working until you re-download it in Xcode > Settings > Components.", [
+    ["Delete", async () => { toast("Deleting runtime…"); const r = await post("/api/storage/action", { name: "sim_runtime:" + rt.dataset.rt }); toast(`Freed ${fmtBytes(r.freed)}`); await refreshStorage(); }, true]]); return; }
+  if (e.target.closest("#fda-open")) { post("/api/open-fda"); return; }
+  const sg = e.target.closest("[data-sg]");
+  if (sg) { askSuggestion(ST.state.suggestions[+sg.dataset.sg]); return; }
+  const go = e.target.closest("[data-go]");
+  if (go && ST.view === "storage") { openPath(go.dataset.go); $("ex-list").scrollTop = 0; }
+}, true);
+
+// ------------------------------------------------------------------ data loop
+window.pulseShowFlags = () => { setView("perf"); document.querySelector(".flags")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
+function renderAll() { renderHeader(); renderTiles(); renderCharts(); renderFans(); renderFlags(); renderTable(); }
+let lastT = 0, busy = false;
+async function poll(force, bg) {
+  if (busy && !force) return; busy = true;
+  try {
+    const r = await fetch("/api/live?since=" + lastT + (bg ? "&bg=1" : "")); const j = await r.json();
+    S.live = j; S.meta = j.meta;
+    if (j.samples.length) { S.samples.push(...j.samples); lastT = S.samples[S.samples.length - 1].t; }
+    const cutoff = lastT - 3600; while (S.samples.length && S.samples[0].t < cutoff) S.samples.shift();
+    // don't rebuild the table while the user is selecting text in it
+    const sel = window.getSelection(); const selecting = sel && !sel.isCollapsed && $("tablewrap").contains(sel.anchorNode);
+    renderHeader(); if (ST.view === "perf") { renderTiles(); renderCharts(); renderFans(); renderFlags(); if (!selecting) renderTable(); }
+  } catch (e) {
+    $("health").innerHTML = `<span style="color:var(--critical-ink);display:inline-flex">${SEV.critical.icon}</span>Monitor offline`;
+  } finally { busy = false; }
+}
+(async function init() {
+  try {
+    const h = await (await fetch("/api/history")).json();
+    S.meta = h.meta; S.samples = h.samples; lastT = S.samples.length ? S.samples[S.samples.length - 1].t : 0;
+  } catch {}
+  makeCharts(S.meta?.interval || 2);
+  await poll(true);
+  // Only poll at full speed while the Performance view is on screen; otherwise the
+  // monitor drops to its low-cost background cadence.
+  let tick = 0;
+  setInterval(() => {
+    tick++;
+    if (document.hidden) return;
+    if (ST.view === "perf") poll(); else if (tick % 5 === 0) poll(false, true);
+  }, (S.meta?.interval || 2) * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && ST.view === "perf") poll(true); });
+  try { if (localStorage.getItem("pulse-view") === "storage") setView("storage"); } catch {}
+})();
+</script>
+</body>
+</html>
