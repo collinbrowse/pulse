@@ -151,6 +151,87 @@ PROTECTED_HINTS = [  # (path, what macOS calls it) - used to tell whether the sc
 ]
 
 
+FRIENDLY = {
+    "Desktop": "Desktop", "Downloads": "Downloads", "Documents": "Documents", ".Trash": "Trash",
+    "Pictures": "Pictures", "Movies": "Movies", "Music": "Music", "Library/Mail": "Mail",
+    "Library/Messages": "Messages", "Library/Safari": "Safari", "Library/Containers": "Other apps' data",
+    "Library/Group Containers": "Shared app data", "Library/CloudStorage": "Cloud storage",
+    "Library/Mobile Documents": "iCloud Drive", "Library/Application Support": "App support files",
+    "Library/Calendars": "Calendars", "Library/Cookies": "Cookies", "Library/Photos": "Photos",
+}
+
+
+_vol_cache = {"t": 0, "v": None}
+
+
+def volumes():
+    """APFS volumes on the startup disk (no privileges needed), cached for a minute.
+    Returns {'data_used': bytes, 'others': [(label, bytes), ...]} or None."""
+    if time.time() - _vol_cache["t"] < 60:
+        return _vol_cache["v"]
+    res = None
+    try:
+        out = subprocess.run(["diskutil", "apfs", "list", "-plist"], capture_output=True, timeout=20).stdout
+        for c in plistlib.loads(out).get("Containers", []):
+            vols = c.get("Volumes", [])
+            data = next((v for v in vols if "Data" in (v.get("Roles") or [])), None)
+            if not data:
+                continue
+            groups = {}
+            for v in vols:
+                if v is data:
+                    continue
+                roles = set(v.get("Roles") or [])
+                label = ("Swap (VM)" if "VM" in roles else
+                         "macOS system" if roles & {"System", "Preboot", "Recovery", "Update"} else
+                         v.get("Name", "Other volume"))
+                groups[label] = groups.get(label, 0) + v.get("CapacityInUse", 0)
+            res = {"data_used": data.get("CapacityInUse", 0),
+                   "others": sorted(groups.items(), key=lambda kv: -kv[1])}
+            break
+    except Exception:
+        res = None
+    _vol_cache.update(t=time.time(), v=res)
+    return res
+
+
+# Mirrors scanner.c: inside these the scanner records totals only, never names.
+PRIVATE_DIRS = ["Library/Mail", "Library/Messages", "Library/Safari", "Library/Cookies", "Library/Keychains",
+                "Library/Mobile Documents", "Library/CloudStorage", "Library/Group Containers", "Library/Containers",
+                "Library/Application Support/AddressBook", "Library/Application Support/CallHistoryDB",
+                "Library/Application Support/com.apple.TCC", "Library/Application Support/MobileSync",
+                "Library/Calendars", "Library/Accounts", "Library/IdentityServices", "Library/Suggestions",
+                "Library/Biome", "Library/HomeKit", "Library/Sharing", "Library/Metadata/CoreSpotlight",
+                ".ssh", ".gnupg"]
+
+
+def is_private(path):
+    p = display(path)
+    return any(p == H(d) for d in PRIVATE_DIRS) or p.endswith(".photoslibrary")
+
+
+def blocked_summary(denied):
+    """Turn the scanner's list of folders macOS refused into a short list of readable places."""
+    home = HOME + "/"
+    groups = {}
+    for p in denied:
+        if not p.startswith(home):
+            continue
+        rel = p[len(home):]
+        parts = rel.split("/")
+        key = "/".join(parts[:2]) if parts[0] == "Library" and len(parts) > 1 else parts[0]
+        if key.endswith(".photoslibrary") or "/" + key in ("/Pictures",) and rel.endswith(".photoslibrary"):
+            key = rel
+        g = groups.setdefault(key, {"path": H(key), "count": 0})
+        g["count"] += 1
+    out = []
+    for key, g in sorted(groups.items(), key=lambda kv: -kv[1]["count"]):
+        base = key.split("/")[-1]
+        label = FRIENDLY.get(key) or (base[:-len(".photoslibrary")] if base.endswith(".photoslibrary") else key.replace("Library/", "Library › "))
+        out.append({"label": label, "path": g["path"], "folders": g["count"]})
+    return out
+
+
 class Scanner:
     """Reads results produced by the separate, read-only `pulse-scanner` program.
 
@@ -173,6 +254,7 @@ class Scanner:
         self.lock = threading.Lock()
         self.dirs, self.big_files, self.node_modules, self.denied_paths = {}, [], [], []
         self.loaded_mtime = 0
+        self.full_access = None        # does Pulse Scanner currently have Full Disk Access?
         self.finished = self.started = None
         self.files = self.denied = 0
         self._load()
@@ -206,17 +288,27 @@ class Scanner:
         big = [tuple(x) for x in d.get("big_files", [])]
         denied = d.get("denied_paths", [])
         if sysd:
+            # Two scans with different access (you with Full Disk Access vs. root without it).
+            # For every folder outside /Users keep whichever scan saw more; /Users always comes
+            # from your scan. The root is rebuilt from the best child of each.
             users_key = DATA_ROOT.rstrip("/") + "/Users"
             for k, v in sysd["dirs"].items():
-                if k != DATA_ROOT and not k.startswith(users_key):
-                    dirs[k] = v                       # system scan saw more here
+                if k == DATA_ROOT or k.startswith(users_key):
+                    continue
+                if k not in dirs or v["size"] > dirs[k]["size"]:
+                    dirs[k] = v
             sroot, uroot = sysd["dirs"].get(DATA_ROOT), dirs.get(DATA_ROOT)
             if sroot and uroot:
-                users = next((c for c in uroot["children"] if c[0] == "Users"), None)
-                kids = [c for c in sroot["children"] if c[0] != "Users"] + ([users] if users else [])
-                kids.sort(key=lambda c: -c[1])
-                dirs[DATA_ROOT] = dict(sroot, children=kids, size=sroot["size"] + (users[1] if users else 0),
-                                       files=sroot["files"] + (users[3] if users else 0))
+                best = {}
+                for c in uroot["children"]:
+                    best[c[0]] = c
+                for c in sroot["children"]:
+                    if c[0] != "Users" and (c[0] not in best or c[1] > best[c[0]][1]):
+                        best[c[0]] = c
+                kids = sorted(best.values(), key=lambda c: -c[1])
+                dirs[DATA_ROOT] = dict(uroot, children=kids, size=sum(c[1] for c in kids),
+                                       files=sum(c[3] for c in kids),
+                                       priv=sum(c[4] for c in kids if len(c) > 4 and c[4] > 0))
             seen = {b[1] for b in big}
             big += [tuple(x) for x in sysd.get("big_files", []) if x[1] not in seen]
             # system scan resolves "denied" outside /Users; keep the rest
@@ -314,6 +406,27 @@ class Scanner:
         self._launch(["--out", self.data_dir], wait=False)
         return True
 
+    def check_access(self):
+        """Ask the scanner to open a folder only Full Disk Access unlocks (Safari's data folder).
+        Cheap: lists one small folder, records no names (it's a private folder)."""
+        probe_dir = next((p for p in (H("Library/Safari"), H("Library/Mail"), H("Library/Messages"))
+                          if os.path.isdir(p)), None)
+        if not probe_dir:
+            return None
+        out = os.path.join(self.data_dir, "quick_scan.json")
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+        try:
+            self._launch(["--out", self.data_dir, "--quick", probe_dir], wait=True)
+            with open(out) as f:
+                d = json.load(f)
+            self.full_access = d.get("denied", 1) == 0
+        except Exception:
+            self.full_access = None
+        return self.full_access
+
     def quick_scan(self, path):
         """Ask the scanner for one small folder that the full scan didn't keep in detail."""
         out = os.path.join(self.data_dir, "quick_scan.json")
@@ -370,7 +483,11 @@ class Scanner:
             priv = c[4] if len(c) > 4 else None
             cp = os.path.join(display(rp), name)
             ok, _ = check_deletable(cp)
+            blocked = priv is not None and priv < 0
+            if blocked:
+                priv = None
             kid = {"name": name, "path": cp, "size": size, "dir": isdir, "files": files, "priv": priv,
+                   "blocked": blocked,
                    "deletable": ok, "known": next((k["id"] for k in KNOWN if k["path"] == cp), None)}
             if isdir and UUID_RE.match(name) and any(display(rp) == f for f, _, _ in SIM_SETS):
                 dev = sim_devices().get(name)
@@ -380,7 +497,11 @@ class Scanner:
             elif isdir and name == "Devices" and display(rp) == H("Library/Developer/CoreSimulator"):
                 kid["label"] = "Devices (iOS Simulators)"
             kids.append(kid)
+        private = is_private(rp)
+        inside = display(rp) + "/"
+        blocked_inside = sum(1 for d in self.denied_paths if d.startswith(inside))
         return {"path": display(rp), "size": n["size"], "priv": n.get("priv"), "files": n["files"], "children": kids,
+                "private": private, "blocked_inside": blocked_inside,
                 "other": n["other"], "other_count": n["other_count"], "done": n["done"]}
 
     def suggestions(self):
@@ -401,8 +522,9 @@ class Scanner:
                         "why": "%d JavaScript projects untouched for 30+ days. `npm install` restores them." % len(stale),
                         "items": [dict(n, deletable=check_deletable(n["path"])[0])
                                   for n in sorted(stale, key=lambda n: -n["size"])[:60]]})
-        old_installers = [{"path": p, "size": s, "mtime": m, "deletable": check_deletable(p)[0]} for s, p, m in self.big_files
-                          if p.lower().endswith((".dmg", ".pkg", ".iso", ".xip", ".ipsw"))]
+        old_installers = [{"path": b[1], "size": b[0], "mtime": b[2], "frees": b[3] if len(b) > 3 else None,
+                           "deletable": check_deletable(b[1])[0]} for b in self.big_files
+                          if b[1].lower().endswith((".dmg", ".pkg", ".iso", ".xip", ".ipsw"))]
         if old_installers:
             out.append({"id": "installers", "name": "Installers & disk images", "safety": "review", "how": "list",
                         "size": sum(i["size"] for i in old_installers), "path": None,
@@ -439,21 +561,22 @@ class Scanner:
         p = self._progress() or {}
         scanning = p.get("status") == "scanning"
         root = self.dirs.get(DATA_ROOT)
-        denied = set(self.denied_paths)
-        hidden = [label for path, label in PROTECTED_HINTS if display(path) in denied or path in denied]
+        blocked = blocked_summary(self.denied_paths)
+        hidden = [b["label"] for b in blocked]
         return {"status": "scanning" if scanning else ("done" if self.finished else "idle"),
                 "files": p.get("files", self.files) if scanning else self.files,
                 "bytes": p.get("bytes", 0), "current": p.get("current", ""),
                 "started": self.started, "finished": self.finished, "denied": self.denied,
                 "root": "/", "home": HOME, "scanned_total": root["size"] if root else None,
-                "hidden_locations": hidden, "scanner_app": self.scanner_app,
+                "hidden_locations": hidden, "blocked": blocked[:40], "scanner_app": self.scanner_app,
+                "full_access": self.full_access, "volumes": volumes(),
                 "system_scan": {"finished": self.system_finished,
                                 "running": (self.system_progress() or {}).get("status") == "scanning"},
                 "denied_sample": self.denied_paths[:60]}
 
     def large_files(self):
-        return [{"path": p, "size": s, "mtime": m, "deletable": check_deletable(p)[0]}
-                for s, p, m in sorted(self.big_files, reverse=True)]
+        return [{"path": b[1], "size": b[0], "mtime": b[2], "frees": b[3] if len(b) > 3 else None,
+                 "deletable": check_deletable(b[1])[0]} for b in sorted(self.big_files, reverse=True)]
 
     def forget(self, path, freed):
         """Update cached sizes after a deletion so the UI reflects it without a rescan."""

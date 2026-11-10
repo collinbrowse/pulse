@@ -14,11 +14,26 @@ clang -O2 -w -o "$APP/Contents/Resources/probe" probe.c -framework IOKit -framew
 clang -O2 -w -o "$APP/Contents/Resources/pulse-fand" fand.c -framework IOKit -framework CoreFoundation
 swiftc -O -o "$APP/Contents/MacOS/Pulse" app/main.swift -framework AppKit -framework WebKit 2>&1 | grep -v warning || true
 
-echo "• Building Pulse Scanner (read-only helper that can be given Full Disk Access)"
-SC="$APP/Contents/Library/Pulse Scanner.app"
-mkdir -p "$SC/Contents/MacOS"
-clang -O2 -w -o "$SC/Contents/MacOS/pulse-scanner" scanner.c
-cat > "$SC/Contents/Info.plist" <<PLIST
+echo "• Copying the monitor"
+cp server.py storage.py fans.py index.html probe.c fand.c smc.h scanner.c "$APP/Contents/Resources/"
+
+echo "• Drawing the icon"
+swiftc -O -o "$BUILD/make_icon" app/make_icon.swift -framework AppKit 2>/dev/null
+"$BUILD/make_icon" "$BUILD/Pulse.iconset"
+iconutil -c icns "$BUILD/Pulse.iconset" -o "$APP/Contents/Resources/Pulse.icns"
+
+echo "• Pulse Scanner (read-only helper that can be given Full Disk Access)"
+# macOS ties Full Disk Access to the scanner's exact code signature. It is only rebuilt when
+# scanner.c (or this recipe) changes, so the access you grant survives normal Pulse updates.
+SC_KEY=$( (cat scanner.c; echo "scanner-recipe-v2") | shasum -a 256 | cut -c1-16)
+SC_CACHE="$BUILD/scanner-cache/$SC_KEY/Pulse Scanner.app"
+if [ ! -d "$SC_CACHE" ]; then
+  echo "  scanner changed - rebuilding (Full Disk Access will need to be granted again)"
+  rm -rf "$BUILD/scanner-cache"
+  mkdir -p "$SC_CACHE/Contents/MacOS" "$SC_CACHE/Contents/Resources"
+  clang -O2 -w -o "$SC_CACHE/Contents/MacOS/pulse-scanner" scanner.c
+  cp "$APP/Contents/Resources/Pulse.icns" "$SC_CACHE/Contents/Resources/"
+  cat > "$SC_CACHE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -32,15 +47,11 @@ cat > "$SC/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
-
-echo "• Copying the monitor"
-cp server.py storage.py fans.py index.html probe.c fand.c smc.h scanner.c "$APP/Contents/Resources/"
-
-echo "• Drawing the icon"
-swiftc -O -o "$BUILD/make_icon" app/make_icon.swift -framework AppKit 2>/dev/null
-"$BUILD/make_icon" "$BUILD/Pulse.iconset"
-iconutil -c icns "$BUILD/Pulse.iconset" -o "$APP/Contents/Resources/Pulse.icns"
-mkdir -p "$SC/Contents/Resources" && cp "$APP/Contents/Resources/Pulse.icns" "$SC/Contents/Resources/"
+  codesign --force --sign - --identifier local.pulse.scanner "$SC_CACHE" >/dev/null
+fi
+SC="$APP/Contents/Library/Pulse Scanner.app"
+mkdir -p "$APP/Contents/Library"
+cp -R "$SC_CACHE" "$SC"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -61,8 +72,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
-# Sign the scanner on its own (its identity is what Full Disk Access is granted to), then the app.
-codesign --force --sign - --identifier local.pulse.scanner "$SC" >/dev/null 2>&1 || true
+# Sign the app; the nested scanner keeps its own (cached) signature.
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 if [ "${1:-}" != "--no-install" ]; then

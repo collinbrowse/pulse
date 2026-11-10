@@ -19,6 +19,7 @@
   --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
   --good-ink: #006300; --warning-ink: #8a5a00; --serious-ink: #a8431c; --critical-ink: #b02a2a;
   --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+  --hatch: repeating-linear-gradient(135deg, #c9c8c2 0 4px, #e6e5e0 4px 8px);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -28,10 +29,12 @@
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
     --good-ink: #5fd35f; --warning-ink: #fab219; --serious-ink: #ec835a; --critical-ink: #f07070;
     --shadow: none;
+    --hatch: repeating-linear-gradient(135deg, #4a4a46 0 4px, #2c2c2a 4px 8px);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --hatch: repeating-linear-gradient(135deg, #4a4a46 0 4px, #2c2c2a 4px 8px);
   --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2c2c2a; --grid: #262624;
   --text: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c85;
   --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
@@ -253,6 +256,22 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .safety.safe { color: var(--good-ink); background: color-mix(in srgb, var(--good) 14%, transparent); }
 .safety.review { color: var(--warning-ink); background: color-mix(in srgb, var(--warning) 16%, transparent); }
 .safety.careful { color: var(--critical-ink); background: color-mix(in srgb, var(--critical) 14%, transparent); }
+.coverage { margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); }
+.cov-head { margin-bottom: 8px; } .cov-head span { color: var(--text-2); }
+.step { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 0; border-top: 1px solid var(--border); }
+.step .st-ico { padding-top: 2px; }
+.step .st-desc { display: block; color: var(--text-2); font-size: 12.5px; margin-top: 1px; }
+.step .st-act { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.step .st-act button, .fan-banner > button { white-space: nowrap; flex: none; }
+.blocked { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 9px; border-top: 1px solid var(--border); }
+.bl-title { color: var(--text-2); font-size: 12.5px; margin-right: 2px; }
+.bl-more { color: var(--text-3); font-size: 12px; }
+.chip { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.chip:hover { border-color: var(--text-3); }
+details.why { margin-top: 8px; font-size: 12.5px; color: var(--text-2); }
+details.why summary { cursor: pointer; color: var(--text-2); }
+details.why p { margin: 6px 0 0; }
+.exrow.blocked .nm div:first-child { color: var(--text-2); }
 .fda-steps { margin: 6px 0; padding-left: 20px; color: var(--text-2); }
 .fda-steps li { margin: 2px 0; }
 .fda-why { display: block; color: var(--text-3); font-size: 12px; margin-top: 4px; }
@@ -385,18 +404,26 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
       <div class="stackbar" id="st-bar"></div>
       <div class="legend" id="st-legend" style="margin-top:10px"></div>
       <div class="progress" id="st-progress" hidden><div></div></div>
-      <div class="fan-banner" id="deep" hidden style="margin:12px 0 0">
-        <div><b id="deep-title">Measure system folders</b><br><span id="deep-text"></span>
-          <span class="fda-why">Runs once, read-only, after you approve the macOS admin prompt — nothing keeps admin rights afterwards. Results stay private to you, and sensitive system folders are recorded as totals only. Pulse won't delete anything here; use the Finder buttons, and macOS will ask for your password before deleting.</span></div>
-        <button class="btn" id="deep-run">Measure…</button>
-      </div>
-      <div class="fan-banner warn" id="fda" hidden style="margin:12px 0 0">
-        <div><b>Let the scanner see everything — read-only</b><br><span id="fda-text"></span>
-          <ol class="fda-steps"><li>Click <b>Set up…</b> — System Settings opens at Full Disk Access, and Finder shows <b>Pulse Scanner</b>.</li>
-          <li>Drag <b>Pulse Scanner</b> into the list (or click + and pick it), and make sure it's switched on.</li>
-          <li>Come back and click <b>Rescan</b>.</li></ol>
-          <span class="fda-why">Only the scanner gets this access. It can list folders and read sizes, but it contains no code that can change or delete files. The part of Pulse that deletes things doesn't get Full Disk Access, so macOS still blocks it from protected folders unless you approve a specific one.</span></div>
-        <button class="btn" id="fda-open">Set up…</button>
+      <div class="coverage" id="coverage" hidden>
+        <div class="cov-head"><b id="cov-title"></b><span id="cov-sub"></span></div>
+        <div class="step" id="step-fda">
+          <span class="st-ico" id="fda-ico"></span>
+          <div class="st-body"><b>Full Disk Access for Pulse Scanner</b><span class="st-desc" id="fda-desc"></span>
+            <ol class="fda-steps" id="fda-steps"><li>Click <b>Set up…</b>: System Settings opens at Full Disk Access, and Finder shows <b>Pulse Scanner</b>.</li>
+              <li>Drag <b>Pulse Scanner</b> into the list (or click <b>+</b> and pick it) and switch it on.</li>
+              <li>Come back here. Pulse notices and rescans on its own.</li></ol></div>
+          <div class="st-act"><button class="btn" id="fda-open">Set up…</button><button class="ghost" id="fda-check">Check again</button></div>
+        </div>
+        <div class="step" id="step-sys">
+          <span class="st-ico" id="sys-ico"></span>
+          <div class="st-body"><b>System folders</b><span class="st-desc" id="sys-desc"></span></div>
+          <div class="st-act"><button class="btn" id="deep-run">Measure…</button></div>
+        </div>
+        <div class="blocked" id="blocked" hidden></div>
+        <details class="why"><summary>Why is this safe?</summary>
+          <p>Only <b>Pulse Scanner</b> gets Full Disk Access. It can list folders and read sizes, and contains no code that can change or delete files. Inside personal folders (Mail, Messages, other apps' data, Photos…) it records totals only, never file names. The part of Pulse that deletes things has no special access: it only deletes inside your home folder after you confirm, and macOS still guards protected folders from it.</p>
+          <p><b>System folders</b> are measured once per click, read-only, after you approve the macOS admin prompt; nothing keeps admin rights afterwards. Pulse never deletes there. Use the Finder buttons, and macOS asks for your password itself.</p>
+        </details>
       </div>
     </div>
     <div class="st-grid">
@@ -1004,7 +1031,9 @@ const FOLDER = '<svg class="ic" viewBox="0 0 20 20"><path d="M2 5.5A1.5 1.5 0 01
 const FILE = '<svg class="ic" viewBox="0 0 20 20"><path d="M5 2.5h6.5L15 6v11.5H5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M11.5 2.5V6H15" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const SAFETY = { safe: "Safe to delete", review: "Review first", careful: "Keep unless sure" };
 // "frees X" note when APFS clones mean deleting would free much less than the size shown
-const freesNote = (size, priv) => (priv != null && size > 0 && priv < size * 0.8) ? `frees ≈ ${fmtBytes(priv)}` : "";
+// APFS "private size" is a floor: copies shared only *within* the same folder would also be freed.
+const freesNote = (size, priv) => (priv != null && priv >= 0 && size > 0 && priv < size * 0.8) ? `frees ≥ ${fmtBytes(priv)}` : "";
+const FREES_TIP = "Much of this is shared with other copies on disk (APFS clones). Deleting it frees at least this much; more if the copies are inside the same folder.";
 function freedToast(r) {
   const shared = r.size && r.freed < r.size * 0.5;
   toast(shared ? `Freed ${fmtBytes(r.freed)} of ${fmtBytes(r.size)} — the rest is shared with other copies (APFS clones), so it's still in use`
@@ -1022,8 +1051,33 @@ function setView(v) {
 }
 $("views").addEventListener("click", (e) => { const b = e.target.closest("button[data-v]"); if (b) setView(b.dataset.v); });
 
+let lastAccessCheck = 0;
+async function checkAccess(force) {
+  if (ST.checking || (!force && Date.now() - lastAccessCheck < 5000)) return;
+  lastAccessCheck = Date.now(); ST.checking = true; if (ST.state) renderDisk();
+  try {
+    const prev = ST.state?.full_access;
+    const r = await post("/api/storage/check-access");
+    if (ST.state) ST.state.full_access = r.full_access;
+    if (r.full_access && prev !== true) {
+      toast("Full Disk Access is on — rescanning to include protected folders");
+      await post("/api/storage/scan"); ST.rootNode = null; await loadState(); schedule();
+    } else if (force && r.full_access === false) toast("Not granted yet — Pulse Scanner still can't open protected folders");
+  } catch {}
+  ST.checking = false; if (ST.state) renderDisk();
+}
+// Coming back from System Settings: re-check automatically.
+addEventListener("focus", () => { if (ST.view === "storage" && ST.state && ST.state.full_access !== true) checkAccess(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && ST.view === "storage" && ST.state && ST.state.full_access !== true) checkAccess(); });
+
 async function storageInit() {
   await loadState();
+  if (!ST.state) {            // server not reachable yet (e.g. Pulse is restarting): retry
+    $("ex-list").innerHTML = `<div class="empty">Connecting to Pulse…</div>`;
+    clearTimeout(ST.retry); ST.retry = setTimeout(() => { if (ST.view === "storage") storageInit(); }, 2000);
+    return;
+  }
+  if (ST.state.full_access !== true) checkAccess();
   if (ST.state.status === "idle") { await post("/api/storage/scan"); await loadState(); }
   if (!ST.path) ST.path = ST.state.home;
   await openPath(ST.path);
@@ -1059,21 +1113,37 @@ function renderDisk() {
   const scanning = st.status === "scanning";
   $("st-progress").hidden = !scanning;
   $("st-scan").textContent = scanning ? `Scanning… ${st.files.toLocaleString()} files · ${fmtBytes(st.bytes)} · ${st.current || ""}`.slice(0, 140)
-    : st.finished ? `Scanned ${ago(st.finished)} · ${st.files.toLocaleString()} files${st.denied ? ` · ${st.denied} folders protected by macOS` : ""}` : "";
+    : st.finished ? `Scanned ${ago(st.finished)} · ${st.files.toLocaleString()} files${st.denied ? ` · ${st.denied} folders blocked by macOS` : ""}` : "";
   $("st-rescan").disabled = scanning; $("st-rescan").textContent = scanning ? "Scanning…" : "Rescan";
-  const hidden = st.scanned_total != null ? d.used - st.scanned_total : 0;
-  const sys = st.system_scan || {};
-  $("deep").hidden = !(st.status === "done" && (hidden > 20 * 2 ** 30 || sys.finished));
+  // ---- coverage: how much of the disk Pulse can actually see, and how to see the rest
+  const vol = st.volumes, dataUsed = vol ? vol.data_used : d.used;
+  const seen = Math.min(st.scanned_total || 0, dataUsed), hiddenBytes = Math.max(0, dataUsed - seen);
+  const sys = st.system_scan || {}, fa = st.full_access;
+  const done = st.status === "done";
+  $("coverage").hidden = !done && !st.finished;
+  const pctSeen = dataUsed ? Math.round((seen / dataUsed) * 100) : 0;
+  $("cov-title").textContent = `Pulse can see ${fmtBytes(seen)} of the ${fmtBytes(dataUsed)} stored on your Mac (${pctSeen}%)`;
+  $("cov-sub").textContent = hiddenBytes > 5 * 2 ** 30 ? ` · ${fmtBytes(hiddenBytes)} is in folders macOS hasn't let it into yet` : " · that's everything";
+  const okIco = `<span style="color:var(--good-ink);display:inline-flex">${SEV.good.icon}</span>`;
+  const warnIco = `<span style="color:var(--warning-ink);display:inline-flex">${SEV.warning.icon}</span>`;
+  $("fda-ico").innerHTML = fa ? okIco : warnIco;
+  $("fda-desc").textContent = fa ? "Granted — the scanner can see protected folders (read-only)."
+    : fa === false ? "Not granted — Desktop, Downloads, Trash, Photos, Mail and other apps' data stay hidden."
+    : "Checking…";
+  $("fda-steps").hidden = !!fa; $("fda-open").hidden = !!fa;
+  $("fda-check").textContent = ST.checking ? "Checking…" : "Check again"; $("fda-check").disabled = !!ST.checking;
+  $("sys-ico").innerHTML = sys.finished ? okIco : warnIco;
+  $("sys-desc").textContent = sys.running || ST.deepBusy ? "Measuring (read-only)…"
+    : sys.finished ? `Measured ${ago(sys.finished)} — /private/var and other admin-only folders are included.`
+    : "Not measured — admin-only folders such as /private/var aren't counted yet. Needs your admin password once per measurement.";
   $("deep-run").disabled = !!sys.running || ST.deepBusy;
   $("deep-run").textContent = sys.running || ST.deepBusy ? "Measuring…" : sys.finished ? "Measure again…" : "Measure…";
-  $("deep-title").textContent = sys.finished ? `System folders measured ${ago(sys.finished)}` : "Measure system folders";
-  $("deep-text").textContent = sys.finished
-    ? `Folders like /private/var and /Library are now included. ${hidden > 20 * 2 ** 30 ? fmtBytes(hidden) + " is still unaccounted for (privacy-protected folders, other volumes or purgeable space)." : ""}`
-    : `${fmtBytes(hidden)} of used space is in places Pulse can't see yet. Some of it is in system folders only an administrator can read (/private/var, parts of /Library).`;
-  const locs = st.hidden_locations || [];
-  $("fda").hidden = !(st.status === "done" && locs.length);
-  $("fda-text").textContent = `macOS kept the scanner out of: ${locs.join(", ")}. About ${fmtBytes(hidden)} of used space isn't accounted for yet (some of that is simulator disk images and system snapshots, which are listed separately).`;
-  // composition bar from the scanned tree
+  const bl = (st.blocked || []);
+  $("blocked").hidden = !bl.length;
+  $("blocked").innerHTML = bl.length ? `<span class="bl-title">Still hidden from the scanner:</span>` + bl.slice(0, 14).map((b) =>
+    `<button class="chip" data-reveal="${esc(b.path)}" title="${esc(b.path)} · ${b.folders} folder${b.folders > 1 ? "s" : ""} blocked · click to show in Finder">🔒 ${esc(b.label)}</button>`).join("")
+    + (bl.length > 14 ? `<span class="bl-more">+${bl.length - 14} more</span>` : "") : "";
+  // ---- composition bar from the scanned tree
   const root = ST.rootNode;
   const parts = [];
   if (root) {
@@ -1082,17 +1152,18 @@ function renderDisk() {
     parts.push(["Your home folder", "--s1", home]);
     parts.push(["Applications", "--s2", by.Applications || 0]);
     parts.push(["Library (shared)", "--s3", by.Library || 0]);
-    parts.push(["System data", "--s4", (by.private || 0) + (by.usr || 0) + (by.opt || 0) + (by.cores || 0)]);
+    parts.push(["System data", "--s4", (by.private || 0) + (by.usr || 0) + (by.opt || 0) + (by.cores || 0) + (by.System || 0)]);
     const other = root.size - parts.reduce((a, p) => a + p[2], 0);
-    parts.push(["Other users & folders", "--s5", Math.max(0, other)]);
-    const unscanned = Math.max(0, d.used - root.size);
-    parts.push(["Snapshots, purgeable & protected", "--text-3", unscanned]);
+    parts.push(["Other folders", "--s5", Math.max(0, other)]);
+    parts.push(["Hidden from Pulse", "hatch", Math.max(0, dataUsed - root.size)]);
+    if (vol) for (const [label, bytes] of vol.others) parts.push([label, "--text-3", bytes]);
   } else parts.push(["Used", "--s1", d.used]);
   parts.push(["Free", "--surface-2", d.free]);
+  const bg = (c) => (c === "hatch" ? "var(--hatch)" : `var(${c})`);
   $("st-bar").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
-    `<div style="flex:${v};background:var(${c})" title="${esc(l)}: ${fmtBytes(v)}"></div>`).join("");
+    `<div style="flex:${v};background:${bg(c)}" title="${esc(l)}: ${fmtBytes(v)}"></div>`).join("");
   $("st-legend").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
-    `<span><i style="background:var(${c});${c === "--surface-2" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
+    `<span><i style="background:${bg(c)};${c === "--surface-2" || c === "hatch" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
   // fetch root + home totals occasionally for the bar
   if (!ST.rootNode || Date.now() - (ST.rootAt || 0) > (scanning ? 4000 : 60000)) {
     ST.rootAt = Date.now();
@@ -1114,7 +1185,11 @@ function renderExplorer() {
   const n = ST.node; if (!n) return;
   const max = Math.max(1, ...n.children.map((c) => c.size));
   $("ex-meta").textContent = `${fmtBytes(n.size)}${n.files ? ` · ${n.files.toLocaleString()} files` : ""}${n.done ? "" : " · still scanning"}`;
-  const rows = n.children.filter((c) => c.size > 0).map((c) => {
+  const rows = n.children.filter((c) => c.size > 0 || c.blocked).map((c) => {
+    if (c.blocked) return `<div class="exrow blocked" title="${esc(c.path)}">${FOLDER}
+      <div class="nm"><div>${esc(c.name)}</div><div class="simsub">🔒 Blocked by macOS — give Pulse Scanner Full Disk Access to see inside</div></div>
+      <div class="sz num" style="color:var(--text-3)">—</div>
+      <div class="acts"><button class="rowbtn" data-reveal="${esc(c.path)}" title="Show in Finder">Finder</button></div></div>`;
     const pct = n.size ? (c.size / n.size) * 100 : 0;
     const known = c.known ? ` <span class="safety ${(ST.state.suggestions.find((s) => s.id === c.known) || {}).safety || "review"}">tip</span>` : "";
     return `<div class="exrow ${c.dir ? "dir" : ""}" ${c.dir ? `data-go="${esc(c.path)}"` : ""}>
@@ -1122,12 +1197,15 @@ function renderExplorer() {
       <div class="nm"><div title="${esc(c.path)}">${esc(c.label || c.name)}${known}</div>
         ${c.simdev ? `<div class="simsub">${esc(c.detail)} · ${c.last_used ? "used " + ago(c.last_used) : "never used"}<span class="udid">${esc(c.name)}</span></div>` : ""}
         <div class="bar"><div style="width:${(c.size / max) * 100}%"></div></div></div>
-      <div class="sz num">${fmtBytes(c.size)}<small>${freesNote(c.size, c.priv) || (pct >= 0.1 ? pct.toFixed(pct < 10 ? 1 : 0) + "%" : "&lt;0.1%")}</small></div>
+      <div class="sz num">${fmtBytes(c.size)}<small title="${freesNote(c.size, c.priv) ? FREES_TIP : ""}">${freesNote(c.size, c.priv) || (pct >= 0.1 ? pct.toFixed(pct < 10 ? 1 : 0) + "%" : "&lt;0.1%")}</small></div>
       <div class="acts"><button class="rowbtn" data-reveal="${esc(c.path)}" title="Show in Finder">Finder</button>
       ${c.simdev ? (c.booted ? "" : `<button class="rowbtn" data-simdev="${c.simdev}" data-name="${esc(c.label)}" data-detail="${esc(c.detail)}" data-size="${c.size}" data-frees="${c.priv ?? ""}" style="color:var(--critical-ink)">Delete…</button>`)
         : c.deletable ? `<button class="rowbtn" data-del="${esc(c.path)}" data-size="${c.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</div></div>`;
   });
-  if (n.other > 0) rows.push(`<div class="exrow"><span></span><div class="nm" style="color:var(--text-3)">${n.other_count ? n.other_count + " more items" : "Smaller files"}</div><div class="sz num" style="color:var(--text-3)">${fmtBytes(n.other)}</div><div></div></div>`);
+  if (n.private) rows.push(`<div class="exrow blocked"><span></span><div class="nm"><div>🔒 Personal data folder</div>
+      <div class="simsub">To protect your privacy Pulse records only this folder's total size, never the names inside.${n.blocked_inside ? ` macOS also blocked ${n.blocked_inside} subfolder${n.blocked_inside > 1 ? "s" : ""}, so the real total is larger until Pulse Scanner has Full Disk Access.` : ""}</div></div>
+      <div class="sz num">${fmtBytes(n.size)}</div><div></div></div>`);
+  else if (n.other > 0) rows.push(`<div class="exrow"><span></span><div class="nm" style="color:var(--text-3)">${n.other_count ? n.other_count + " more items" : "Smaller files"}</div><div class="sz num" style="color:var(--text-3)">${fmtBytes(n.other)}</div><div></div></div>`);
   $("ex-list").innerHTML = rows.join("") || `<div class="empty">Empty folder.</div>`;
 }
 
@@ -1158,7 +1236,7 @@ function renderSuggestions() {
 function renderLarge() {
   $("lf-list").innerHTML = ST.large.length ? `<table><thead><tr><th>File</th><th class="r">Size</th><th>Modified</th><th></th></tr></thead><tbody>` +
     ST.large.slice(0, 150).map((f) => `<tr><td><div class="pname">${esc(f.path.split("/").pop())}</div><div class="ppath">${esc(f.path)}</div></td>
-      <td class="r num">${fmtBytes(f.size)}</td><td>${ago(f.mtime)}</td>
+      <td class="r num">${fmtBytes(f.size)}${freesNote(f.size, f.frees) ? `<span class="simsub" title="${FREES_TIP}">${freesNote(f.size, f.frees)}</span>` : ""}</td><td>${ago(f.mtime)}</td>
       <td class="r" style="white-space:nowrap"><button class="rowbtn" data-reveal="${esc(f.path)}">Finder</button>
       ${f.deletable ? `<button class="rowbtn" data-del="${esc(f.path)}" data-size="${f.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</td></tr>`).join("") + `</tbody></table>`
     : `<div class="empty">${ST.state?.status === "scanning" ? "Still looking…" : "No files over 250 MB."}</div>`;
@@ -1223,12 +1301,13 @@ document.addEventListener("click", async (e) => {
   if (more) { e.stopPropagation(); const id = more.dataset.more; ST.expanded.has(id) ? ST.expanded.delete(id) : ST.expanded.add(id); renderSuggestions(); return; }
   const sd = e.target.closest("[data-simdev]");
   if (sd) { e.stopPropagation(); modal(`Delete simulator “${sd.dataset.name}”?`,
-    `${sd.dataset.detail}\n${fmtBytes(+sd.dataset.size)}${sd.dataset.frees ? " · deleting frees ≈ " + fmtBytes(+sd.dataset.frees) + " (the rest is shared with other simulators/builds)" : ""} · ID ${sd.dataset.simdev}\n\nRemoves the simulator and everything installed on it (apps and their data) using Xcode's own simctl. This can't be undone, but you can create a new simulator in Xcode any time.`, [
+    `${sd.dataset.detail}\n${fmtBytes(+sd.dataset.size)}${sd.dataset.frees ? " · deleting frees at least " + fmtBytes(+sd.dataset.frees) + " (most of it is shared with other simulators/builds)" : ""} · ID ${sd.dataset.simdev}\n\nRemoves the simulator and everything installed on it (apps and their data) using Xcode's own simctl. This can't be undone, but you can create a new simulator in Xcode any time.`, [
     ["Delete", async () => { toast("Deleting simulator…"); const r = await post("/api/storage/action", { name: "sim_device:" + sd.dataset.simdev }); freedToast(r); await refreshStorage(); }, true]]); return; }
   const rt = e.target.closest("[data-rt]");
   if (rt) { e.stopPropagation(); modal(`Delete ${rt.dataset.name}?`, "Simulators using this iOS version stop working until you re-download it in Xcode > Settings > Components.", [
     ["Delete", async () => { toast("Deleting runtime…"); const r = await post("/api/storage/action", { name: "sim_runtime:" + rt.dataset.rt }); toast(`Freed ${fmtBytes(r.freed)}`); await refreshStorage(); }, true]]); return; }
   if (e.target.closest("#fda-open")) { post("/api/open-fda"); return; }
+  if (e.target.closest("#fda-check")) { checkAccess(true); return; }
   const sg = e.target.closest("[data-sg]");
   if (sg) { askSuggestion(ST.state.suggestions[+sg.dataset.sg]); return; }
   const go = e.target.closest("[data-go]");

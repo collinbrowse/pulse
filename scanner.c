@@ -39,7 +39,7 @@
 #define BIG_FILE (250LL << 20)     // "largest files" threshold
 #define TOP_CHILDREN 200
 #define MAX_BIG 300
-#define MAX_DENIED 400
+#define MAX_DENIED 3000
 
 typedef struct { char *name; long long size; int dir; long long files; long long priv; } Child;
 typedef struct {
@@ -47,8 +47,9 @@ typedef struct {
   Child *kids; int nkids, cap;
   int in_nm;          // inside a node_modules already
   int priv;           // inside a personal-data folder: record totals only
+  int skip;           // deliberately not descended (fts still reports it again post-order)
 } Frame;
-typedef struct { long long size; char *path; long mtime; } Big;
+typedef struct { long long size; char *path; long mtime; long long priv; } Big;
 
 static const char *outdir, *root_path = "/System/Volumes/Data";
 static const char *display_prefix = "/System/Volumes/Data";
@@ -62,6 +63,7 @@ static time_t started, last_progress;
 static const char *current = "";
 static int quick = 0;
 static int system_mode = 0;
+static const char *skip_top = NULL;   // top-level folder to leave out (system mode: "Users")
 static long as_uid = -1;
 static gid_t as_gid = 0;
 
@@ -184,7 +186,7 @@ static void emit_dir(Frame *f) {
   fprintf(dirs_out, "],\"other\":%lld,\"other_count\":%d,\"done\":true}", other, f->nkids - shown);
 }
 
-static void add_big(long long size, const char *path, long mtime) {
+static void add_big(long long size, const char *path, long mtime, long long priv) {
   int slot = -1;
   if (nbig < MAX_BIG) slot = nbig++;
   else {
@@ -194,7 +196,7 @@ static void add_big(long long size, const char *path, long mtime) {
     free(big[mi].path);
     slot = mi;
   }
-  big[slot] = (Big){size, strdup(disp(path)), mtime};
+  big[slot] = (Big){size, strdup(disp(path)), mtime, priv};
 }
 
 static void note_node_modules(const char *path, long long size) {
@@ -228,7 +230,8 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[i], "--out") && i + 1 < argc) outdir = argv[++i];
     else if (!strcmp(argv[i], "--root") && i + 1 < argc) root_path = argv[++i];
     else if (!strcmp(argv[i], "--quick") && i + 1 < argc) { quick_path = argv[++i]; quick = 1; }
-    else if (!strcmp(argv[i], "--system")) system_mode = 1;
+    else if (!strcmp(argv[i], "--system")) { system_mode = 1; skip_top = "Users"; }
+    else if (!strcmp(argv[i], "--skip-top") && i + 1 < argc) skip_top = argv[++i];
     else if (!strcmp(argv[i], "--as-uid") && i + 1 < argc) as_uid = atol(argv[++i]);
   }
   if (!outdir) { fprintf(stderr, "usage: pulse-scanner --out DIR [--root PATH | --quick PATH]\n"); return 2; }
@@ -275,17 +278,27 @@ int main(int argc, char **argv) {
   while ((e = fts_read(fts))) {
     switch (e->fts_info) {
     case FTS_D:
-      if (sp >= 511) { fts_set(fts, e, FTS_SKIP); break; }
-      if (system_mode && e->fts_level == 1 && !strcmp(e->fts_name, "Users")) { fts_set(fts, e, FTS_SKIP); break; }
+      if (sp >= 511) { fts_set(fts, e, FTS_SKIP); break; }   // too deep: never pushed, never popped (see FTS_DP)
       stack[sp] = (Frame){strdup(e->fts_path), 0, 0, 0, NULL, 0, 0,
                           sp > 0 && (stack[sp - 1].in_nm || ends_with(stack[sp - 1].path, "/node_modules")),
-                          (sp > 0 && stack[sp - 1].priv) || is_private_root(e->fts_path)};
+                          (sp > 0 && stack[sp - 1].priv) || is_private_root(e->fts_path), 0};
+      // System mode leaves /Users to the normal scan. A skipped folder still comes back as
+      // FTS_DP, so it must have a frame of its own or the parent's frame would be popped.
+      if (skip_top && e->fts_level == 1 && !strcmp(e->fts_name, skip_top)) {
+        stack[sp].skip = 1;
+        fts_set(fts, e, FTS_SKIP);
+      }
       sp++;
       current = e->fts_path;
       break;
     case FTS_DP: {
-      if (sp == 0) break;
+      if (sp == 0 || strcmp(stack[sp - 1].path, e->fts_path)) break;   // not ours (e.g. depth-limited)
       Frame *f = &stack[--sp];
+      if (f->skip) {
+        for (int i = 0; i < f->nkids; i++) free(f->kids[i].name);
+        free(f->kids); free(f->path);
+        break;
+      }
       int nested_private = f->priv && sp > 0 && stack[sp - 1].priv;
       int keep = !nested_private && (f->size >= MIN_KEEP || e->fts_level <= 1 || (quick && e->fts_level == 0));
       if (keep && f->priv) {       // totals only
@@ -307,11 +320,13 @@ int main(int argc, char **argv) {
     case FTS_DNR: case FTS_ERR: case FTS_NS:
       denied++;
       if (ndenied < MAX_DENIED) denied_paths[ndenied++] = strdup(disp(e->fts_path));
-      // An unreadable folder gets FTS_D then FTS_DNR (no FTS_DP): drop its frame.
+      // An unreadable folder gets FTS_D then FTS_DNR (no FTS_DP): drop its frame, and list it in
+      // its parent as a blocked entry (priv = -1) so the UI can show what macOS kept hidden.
       if (sp > 0 && !strcmp(stack[sp - 1].path, e->fts_path)) {
         Frame *f = &stack[--sp];
         for (int i = 0; i < f->nkids; i++) free(f->kids[i].name);
         free(f->kids); free(f->path);
+        if (sp > 0 && !stack[sp - 1].priv) add_child(&stack[sp - 1], e->fts_name, 0, 1, 0, -1);
       }
       break;
     case FTS_DC:
@@ -326,7 +341,7 @@ int main(int argc, char **argv) {
         p->size += size; p->files++; p->priv_bytes += pv;
         if (size >= CHILD_FILE_MIN && !p->priv) add_child(p, e->fts_name, size, 0, 1, pv);
       }
-      if (size >= BIG_FILE && !(sp > 0 && stack[sp - 1].priv)) add_big(size, e->fts_path, e->fts_statp->st_mtime);
+      if (size >= BIG_FILE && !(sp > 0 && stack[sp - 1].priv)) add_big(size, e->fts_path, e->fts_statp->st_mtime, pv);
     }
     }
     time_t now = time(NULL);
@@ -337,7 +352,7 @@ int main(int argc, char **argv) {
   fprintf(dirs_out, "},\"big_files\":[");
   for (int i = 0; i < nbig; i++) {
     fprintf(dirs_out, "%s[%lld,", i ? "," : "", big[i].size); jstr(dirs_out, big[i].path);
-    fprintf(dirs_out, ",%ld]", big[i].mtime);
+    fprintf(dirs_out, ",%ld,%lld]", big[i].mtime, big[i].priv);
   }
   fprintf(dirs_out, "],\"node_modules\":[%.*s],\"denied_paths\":[", (int)nm_len, nm_buf);
   for (int i = 0; i < ndenied; i++) { if (i) fputc(',', dirs_out); jstr(dirs_out, denied_paths[i]); }

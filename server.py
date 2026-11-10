@@ -1134,6 +1134,8 @@ class Handler(BaseHTTPRequestHandler):
                 # Show the scanner in Finder so it can be dragged into the Full Disk Access list.
                 subprocess.Popen(["open", "-R", SCANNER.scanner_app])
             return self._send(200, {"ok": True})
+        if u.path == "/api/storage/check-access":
+            return self._send(200, {"full_access": SCANNER.check_access()})
         if u.path == "/api/storage/deep-scan":
             res = SCANNER.deep_scan()
             if res.get("ok"):
