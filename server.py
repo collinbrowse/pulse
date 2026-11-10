@@ -1089,25 +1089,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "started": SCANNER.start()})
         if u.path == "/api/storage/delete":
             mode = data.get("mode") if data.get("mode") in ("trash", "permanent", "contents") else "trash"
+            before = MON._disk_usage().get("free")
             res = storage.delete_path(str(data.get("path") or ""), mode)
             if res.get("ok"):
-                gone = res.get("freed") or res.get("moved") or 0
-                if mode != "contents":
-                    SCANNER.forget(data["path"], gone)
-                else:
-                    node = SCANNER.dirs.get(storage.real(data["path"]))
-                    SCANNER.forget(data["path"], gone)
+                gone = res.get("freed") or res.get("moved") or 0      # allocated size (for the tree view)
+                SCANNER.forget(data["path"], gone)
+                res["size"] = gone
+                if mode != "trash":
+                    # Report what actually came back: clones share blocks, so it can be far less.
+                    res["freed"] = storage.settle_freed(before)
                 verb = {"trash": "Moved to Trash", "permanent": "Deleted", "contents": "Emptied"}[mode]
-                MON._event("info", "action", "%s %s (%s)" % (verb, res["path"], fmt_bytes(gone)))
+                MON._event("info", "action", "%s %s (%s%s)" % (
+                    verb, res["path"], fmt_bytes(gone),
+                    "" if mode == "trash" else ", freed %s" % fmt_bytes(res["freed"])))
             return self._send(200 if res.get("ok") else 400, res)
         if u.path == "/api/storage/action":
-            res = storage.run_action(str(data.get("name")))
+            name = str(data.get("name"))
+            target = None
+            if name.startswith("sim_device:"):
+                dev = storage.sim_devices().get(name.split(":", 1)[1].upper())
+                target = dev["path"] if dev else None
+            size = SCANNER.size_of(target) if target else None
+            frees = SCANNER.priv_of(target) if target else None
+            res = storage.run_action(name)
             if res.get("ok") and res.get("forget"):
-                size = SCANNER.size_of(res["forget"]) or 0
-                SCANNER.forget(res["forget"], size)
-                res["freed"] = max(res["freed"], size)
+                SCANNER.forget(res["forget"], size or 0)
+                res["size"], res["expected"] = size, frees
+                # APFS releases space asynchronously: measure what actually came back.
+                res["freed"] = max(res["freed"], storage.settle_freed(res.get("free_before")))
             if res.get("ok"):
-                MON._event("info", "action", "%s - freed %s" % (res["label"], fmt_bytes(res["freed"])))
+                MON._event("info", "action", "%s - freed %s%s" % (
+                    res["label"], fmt_bytes(res["freed"]),
+                    " of %s (rest shared with clones)" % fmt_bytes(res["size"]) if res.get("size") and res["freed"] < res["size"] / 2 else ""))
             return self._send(200 if res.get("ok") else 400, res)
         if u.path == "/api/storage/reveal":
             path = str(data.get("path") or "")

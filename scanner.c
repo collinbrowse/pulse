@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/attr.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -40,9 +41,9 @@
 #define MAX_BIG 300
 #define MAX_DENIED 400
 
-typedef struct { char *name; long long size; int dir; long long files; } Child;
+typedef struct { char *name; long long size; int dir; long long files; long long priv; } Child;
 typedef struct {
-  char *path; long long size, files;
+  char *path; long long size, files, priv_bytes;   // priv_bytes: not shared with APFS clones
   Child *kids; int nkids, cap;
   int in_nm;          // inside a node_modules already
   int priv;           // inside a personal-data folder: record totals only
@@ -140,17 +141,29 @@ static int is_private_root(const char *path) {
   return n > 14 && !strcmp(rest + n - 14, ".photoslibrary");
 }
 
+#ifndef ATTR_CMNEXT_PRIVATESIZE
+#define ATTR_CMNEXT_PRIVATESIZE 0x00000008
+#endif
+// APFS "private size": the part of a file NOT shared with clones, i.e. what deleting it frees.
+static long long private_size(const char *path, long long fallback) {
+  struct attrlist al = {ATTR_BIT_MAP_COUNT, 0, 0, 0, 0, 0, 0};
+  al.forkattr = ATTR_CMNEXT_PRIVATESIZE;
+  struct { uint32_t len; off_t ps; } __attribute__((packed)) buf;
+  if (getattrlist(path, &al, &buf, sizeof buf, FSOPT_NOFOLLOW | FSOPT_ATTR_CMN_EXTENDED) == 0) return buf.ps;
+  return fallback;
+}
+
 static int cmp_child(const void *a, const void *b) {
   long long x = ((const Child *)a)->size, y = ((const Child *)b)->size;
   return x < y ? 1 : x > y ? -1 : 0;
 }
 
-static void add_child(Frame *f, const char *name, long long size, int dir, long long files) {
+static void add_child(Frame *f, const char *name, long long size, int dir, long long files, long long priv) {
   if (f->nkids == f->cap) {
     f->cap = f->cap ? f->cap * 2 : 16;
     f->kids = realloc(f->kids, sizeof(Child) * f->cap);
   }
-  f->kids[f->nkids++] = (Child){strdup(name), size, dir, files};
+  f->kids[f->nkids++] = (Child){strdup(name), size, dir, files, priv};
 }
 
 static void emit_dir(Frame *f) {
@@ -162,11 +175,11 @@ static void emit_dir(Frame *f) {
   if (!first_dir) fputc(',', dirs_out);
   first_dir = 0;
   jstr(dirs_out, f->path);
-  fprintf(dirs_out, ":{\"size\":%lld,\"files\":%lld,\"children\":[", f->size, f->files);
+  fprintf(dirs_out, ":{\"size\":%lld,\"priv\":%lld,\"files\":%lld,\"children\":[", f->size, f->priv_bytes, f->files);
   for (int i = 0; i < shown; i++) {
     if (i) fputc(',', dirs_out);
     fputc('[', dirs_out); jstr(dirs_out, f->kids[i].name);
-    fprintf(dirs_out, ",%lld,%s,%lld]", f->kids[i].size, f->kids[i].dir ? "true" : "false", f->kids[i].files);
+    fprintf(dirs_out, ",%lld,%s,%lld,%lld]", f->kids[i].size, f->kids[i].dir ? "true" : "false", f->kids[i].files, f->kids[i].priv);
   }
   fprintf(dirs_out, "],\"other\":%lld,\"other_count\":%d,\"done\":true}", other, f->nkids - shown);
 }
@@ -264,7 +277,7 @@ int main(int argc, char **argv) {
     case FTS_D:
       if (sp >= 511) { fts_set(fts, e, FTS_SKIP); break; }
       if (system_mode && e->fts_level == 1 && !strcmp(e->fts_name, "Users")) { fts_set(fts, e, FTS_SKIP); break; }
-      stack[sp] = (Frame){strdup(e->fts_path), 0, 0, NULL, 0, 0,
+      stack[sp] = (Frame){strdup(e->fts_path), 0, 0, 0, NULL, 0, 0,
                           sp > 0 && (stack[sp - 1].in_nm || ends_with(stack[sp - 1].path, "/node_modules")),
                           (sp > 0 && stack[sp - 1].priv) || is_private_root(e->fts_path)};
       sp++;
@@ -284,8 +297,8 @@ int main(int argc, char **argv) {
         note_node_modules(f->path, f->size);
       if (sp > 0) {
         Frame *p = &stack[sp - 1];
-        p->size += f->size; p->files += f->files;
-        if (!p->priv) add_child(p, e->fts_name, f->size, 1, f->files);
+        p->size += f->size; p->files += f->files; p->priv_bytes += f->priv_bytes;
+        if (!p->priv) add_child(p, e->fts_name, f->size, 1, f->files, f->priv_bytes);
       }
       for (int i = 0; i < f->nkids; i++) free(f->kids[i].name);
       free(f->kids); free(f->path);
@@ -306,11 +319,12 @@ int main(int argc, char **argv) {
     default: {   // files, symlinks, specials: count their own blocks only
       if (!e->fts_statp) break;
       long long size = (long long)e->fts_statp->st_blocks * 512;
+      long long pv = (e->fts_info == FTS_F && size > 0) ? private_size(e->fts_accpath, size) : size;
       total_files++; total_bytes += size;
       if (sp > 0) {
         Frame *p = &stack[sp - 1];
-        p->size += size; p->files++;
-        if (size >= CHILD_FILE_MIN && !p->priv) add_child(p, e->fts_name, size, 0, 1);
+        p->size += size; p->files++; p->priv_bytes += pv;
+        if (size >= CHILD_FILE_MIN && !p->priv) add_child(p, e->fts_name, size, 0, 1, pv);
       }
       if (size >= BIG_FILE && !(sp > 0 && stack[sp - 1].priv)) add_big(size, e->fts_path, e->fts_statp->st_mtime);
     }

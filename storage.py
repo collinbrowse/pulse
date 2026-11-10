@@ -30,10 +30,8 @@ def display(path):
 def real(path):
     if DATA_ROOT != "/" and path == "/":
         return DATA_ROOT
-    if DATA_ROOT != "/" and not path.startswith("/System/"):
-        cand = DATA_ROOT + path
-        if os.path.lexists(cand):
-            return cand
+    if DATA_ROOT != "/" and path.startswith("/") and not path.startswith("/System/"):
+        return DATA_ROOT + path          # /Users, /Applications, /Library, /private ... live on the data volume
     return path
 
 
@@ -345,6 +343,19 @@ class Scanner:
                     return c[1]
         return None
 
+    def priv_of(self, path):
+        """Bytes deleting `path` would actually free (not shared with APFS clones), if measured."""
+        rp = real(path)
+        node = self.dirs.get(rp)
+        if node and "priv" in node:
+            return node["priv"]
+        parent = self.dirs.get(os.path.dirname(rp))
+        if parent:
+            for c in parent["children"]:
+                if c[0] == os.path.basename(rp) and len(c) > 4:
+                    return c[4]
+        return None
+
     # ---- views
     def node(self, path):
         rp = real(path)
@@ -354,10 +365,12 @@ class Scanner:
         if n is None:
             return None
         kids = []
-        for name, size, isdir, files in n["children"]:
+        for c in n["children"]:
+            name, size, isdir, files = c[:4]
+            priv = c[4] if len(c) > 4 else None
             cp = os.path.join(display(rp), name)
             ok, _ = check_deletable(cp)
-            kid = {"name": name, "path": cp, "size": size, "dir": isdir, "files": files,
+            kid = {"name": name, "path": cp, "size": size, "dir": isdir, "files": files, "priv": priv,
                    "deletable": ok, "known": next((k["id"] for k in KNOWN if k["path"] == cp), None)}
             if isdir and UUID_RE.match(name) and any(display(rp) == f for f, _, _ in SIM_SETS):
                 dev = sim_devices().get(name)
@@ -367,7 +380,7 @@ class Scanner:
             elif isdir and name == "Devices" and display(rp) == H("Library/Developer/CoreSimulator"):
                 kid["label"] = "Devices (iOS Simulators)"
             kids.append(kid)
-        return {"path": display(rp), "size": n["size"], "files": n["files"], "children": kids,
+        return {"path": display(rp), "size": n["size"], "priv": n.get("priv"), "files": n["files"], "children": kids,
                 "other": n["other"], "other_count": n["other_count"], "done": n["done"]}
 
     def suggestions(self):
@@ -377,7 +390,7 @@ class Scanner:
             size = self.size_of(k["path"])
             if not size or size < 100 * 2 ** 20:
                 continue
-            out.append(dict(k, size=size))
+            out.append(dict(k, size=size, frees=self.priv_of(k["path"])))
         # stale node_modules (project untouched for 30+ days)
         now = time.time()
         stale = [n for n in self.node_modules if now - n["mtime"] > 30 * 86400
@@ -398,15 +411,18 @@ class Scanner:
         devs = [d for d in sim_devices(self).values() if d["set"] is None]
         for d in devs:
             d["size"] = self.size_of(d["path"]) or 0
+            d["frees"] = self.priv_of(d["path"])
         for sg in out:
             if sg["id"] == "simdevices" and devs:
-                sg["items"] = [{"path": d["label"], "simdev": d["udid"], "size": d["size"], "mtime": d["last_used"],
+                sg["items"] = [{"path": d["label"], "simdev": d["udid"], "size": d["size"], "frees": d["frees"],
+                                "mtime": d["last_used"],
                                 "detail": " · ".join(sim_detail(d)), "deletable": not d["booted"],
                                 "folder": d["path"]}
                                for d in sorted(devs, key=lambda d: -d["size"])]
                 sg["no_bulk"] = True
-                sg["why"] = ("Each simulator keeps its own copy of installed apps and their data. Delete the ones "
-                             "you don't need - the list shows each device's name, iOS version, last use and apps.")
+                sg["why"] = ("Each simulator keeps its own apps and data. Most of that is usually shared (APFS "
+                             "clones) with other simulators and Xcode builds, so deleting one frees only its "
+                             "'frees' amount; shared space comes back once every copy is gone.")
         rts = sim_runtimes()
         if rts:
             out.append({"id": "simruntimes", "name": "Simulator runtimes", "safety": "review", "how": "list",
@@ -637,6 +653,15 @@ def sim_runtimes():
     return res
 
 
+def settle_freed(before, wait=3.0):
+    """Free-space gain since `before`, after giving APFS a moment to release blocks."""
+    if before is None:
+        return 0
+    time.sleep(wait)
+    vol = "/System/Volumes/Data" if os.path.exists("/System/Volumes/Data") else "/"
+    return max(0, shutil.disk_usage(vol).free - before)
+
+
 def run_action(name):
     forget_path = None
     m = re.match(r"^sim_device:([0-9A-Fa-f-]{36})$", name or "")
@@ -670,6 +695,7 @@ def run_action(name):
     code, out = run(cmd, timeout=600)
     after = shutil.disk_usage("/System/Volumes/Data" if os.path.exists("/System/Volumes/Data") else "/").free
     return {"ok": code == 0, "label": label, "output": out[-800:], "freed": max(0, after - before),
+            "free_before": before,
             "forget": forget_path if code == 0 else None,
             "error": None if code == 0 else (out[-300:] or "Command failed")}
 
