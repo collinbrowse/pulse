@@ -25,10 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         web.setValue(false, forKey: "drawsBackground")
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 940),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
         window.title = "Pulse"
+        // A real title bar (not full-size content) so the window can be dragged; it's
+        // transparent so it takes the window background colour and blends with the dashboard.
         window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 420, height: 500)
         window.backgroundColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(srgbRed: 0.067, green: 0.067, blue: 0.063, alpha: 1) : NSColor(srgbRed: 0.953, green: 0.953, blue: 0.945, alpha: 1) }
