@@ -75,7 +75,17 @@ header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-
 .tile .flagdot { margin-left: auto; }
 
 /* layout */
-.main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 12px 380px; gap: 2px; align-items: start; }
+/* drag handles between columns (double-click to reset) */
+.splitter { align-self: stretch; cursor: col-resize; position: relative; min-height: 120px; }
+.splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; width: 2px; border-radius: 1px; background: transparent; transition: background .15s; }
+.splitter:hover::after, .splitter.drag::after { background: var(--s1); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe, body.resizing canvas { pointer-events: none; }
+/* lists can be made taller/shorter with the corner handle */
+.exlist, .sglist, .tablewrap, .flaglist { resize: vertical; }
+/* once dragged, the chosen height wins over the default max-height */
+.exlist[style*="height"], .sglist[style*="height"], .tablewrap[style*="height"], .flaglist[style*="height"] { max-height: none !important; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
   box-shadow: var(--shadow); min-width: 0; }
@@ -198,7 +208,11 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .progress { height: 3px; background: var(--surface-2); border-radius: 2px; margin-top: 12px; overflow: hidden; }
 .progress div { height: 100%; width: 30%; background: var(--s1); border-radius: 2px; animation: slide 1.4s ease-in-out infinite; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
-.st-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+.st-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) 12px minmax(0, 1fr); gap: 2px; margin-top: 16px; align-items: start; }
+/* paths in the Storage view wrap so they're always readable */
+#view-storage .ppath, #view-storage .pname { white-space: normal; overflow-wrap: anywhere; max-width: none; }
+.sg .items .more { border-top: 1px solid var(--grid); padding-top: 5px; }
+.sg .items .more button { border: 0; background: none; color: var(--s1); cursor: pointer; padding: 0; font: inherit; font-weight: 600; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; margin-bottom: 8px; font-size: 13px; }
 .crumbs button { border: 0; background: none; padding: 3px 6px; border-radius: 6px; cursor: pointer; color: var(--text-2); }
 .crumbs button:hover { background: var(--surface-2); color: var(--text); }
@@ -210,7 +224,7 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .exrow.dir { cursor: pointer; }
 .exrow:hover { background: var(--surface-2); }
 .exrow .nm { min-width: 0; }
-.exrow .nm div:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.exrow .nm div:first-child { overflow-wrap: anywhere; font-weight: 550; }
 .exrow .bar { height: 6px; border-radius: 3px; background: var(--surface-2); margin-top: 5px; overflow: hidden; }
 .exrow .bar div { height: 100%; border-radius: 3px; background: var(--s1); }
 .exrow .sz { text-align: right; font-weight: 600; }
@@ -232,7 +246,7 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .sg .acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .sg .items { margin: 6px 0 0; font-size: 12px; }
 .sg .items div { display: flex; gap: 8px; padding: 3px 0; border-top: 1px solid var(--grid); align-items: center; }
-.sg .items .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.sg .items .p { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text-2); }
 .safety { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; display: inline-flex; gap: 4px; align-items: center; }
 .safety.safe { color: var(--good-ink); background: color-mix(in srgb, var(--good) 14%, transparent); }
 .safety.review { color: var(--warning-ink); background: color-mix(in srgb, var(--warning) 16%, transparent); }
@@ -241,10 +255,10 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .fda-steps li { margin: 2px 0; }
 .fda-why { display: block; color: var(--text-3); font-size: 12px; margin-top: 4px; }
 .modal .choices { display: flex; flex-direction: column; gap: 6px; margin: -6px 0 16px; max-height: 260px; overflow: auto; font-size: 12.5px; color: var(--text-2); }
-@media (max-width: 1100px) { .st-grid { grid-template-columns: 1fr; } .exrow .acts { opacity: 1; } }
+@media (max-width: 1100px) { .st-grid { grid-template-columns: 1fr !important; } .st-grid .splitter { display: none; } .exrow .acts { opacity: 1; } }
 
 @media (max-width: 1280px) { .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 1100px) { .main { grid-template-columns: 1fr; } .side { position: static; max-height: none; } }
+@media (max-width: 1100px) { .main { grid-template-columns: 1fr !important; } .main > .splitter { display: none; } .side { position: static; max-height: none; } }
 @media (max-width: 760px) {
   .wrap { padding: 14px 16px 40px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -339,6 +353,7 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
       </div>
     </div>
 
+    <div class="splitter" data-split="side" title="Drag to resize · double-click to reset"></div>
     <aside class="side">
       <div class="card flags">
         <div class="head"><h2>Flags</h2><span class="meta" id="flag-meta"></span></div>
@@ -388,6 +403,7 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
         <div class="crumbs" id="ex-crumbs"></div>
         <div id="ex-list" class="exlist"><div class="empty">Scanning your disk…</div></div>
       </div>
+      <div class="splitter" data-split="storage" title="Drag to resize · double-click to reset"></div>
       <div class="card">
         <div class="head"><h2>Cleanup suggestions</h2><span class="meta" id="sg-meta"></span></div>
         <div class="sg-actions">
@@ -981,7 +997,7 @@ try { const t = localStorage.getItem("pulse-theme"); if (t) document.documentEle
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderAll());
 
 // ------------------------------------------------------------------ storage view
-const ST = { state: null, path: null, node: null, large: [], view: "perf", timer: null, busy: false };
+const ST = { expanded: new Set(), state: null, path: null, node: null, large: [], view: "perf", timer: null, busy: false };
 const FOLDER = '<svg class="ic" viewBox="0 0 20 20"><path d="M2 5.5A1.5 1.5 0 013.5 4h4l1.6 1.8h7.4A1.5 1.5 0 0118 7.3v7.2a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 012 14.5z" fill="currentColor" opacity=".55"/></svg>';
 const FILE = '<svg class="ic" viewBox="0 0 20 20"><path d="M5 2.5h6.5L15 6v11.5H5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M11.5 2.5V6H15" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const SAFETY = { safe: "Safe to delete", review: "Review first", careful: "Keep unless sure" };
@@ -1115,10 +1131,14 @@ function renderSuggestions() {
     if (s.how === "contents") acts.push(`<button class="rowbtn" data-sg="${i}">Clear</button>`);
     if (s.how.startsWith("action:")) acts.push(`<button class="rowbtn" data-sg="${i}">${s.id === "trash" ? "Empty Trash" : "Clean up"}</button>`);
     if (s.path) acts.push(`<button class="rowbtn" data-go="${esc(s.path)}">Explore</button><button class="rowbtn" data-reveal="${esc(s.path)}">Finder</button>`);
-    const items = (s.items || []).slice(0, 8).map((it) => `<div><span class="p" title="${esc(it.path)}">${esc(it.project || it.path)}</span><span class="num">${fmtBytes(it.size)}</span><span style="color:var(--text-3)">${it.mtime ? ago(it.mtime) : ""}</span>${it.runtime ? `<button class="rowbtn" data-rt="${it.runtime}" data-name="${esc(it.path)}">Delete…</button>` : `<button class="rowbtn" data-del="${esc(it.path)}" data-size="${it.size}">Delete…</button>`}</div>`).join("");
-    if (s.items) acts.unshift(`<button class="rowbtn" data-sg="${i}">Delete all ${s.items.length}</button>`);
+    const open = ST.expanded.has(s.id);
+    const items = (s.items || []).slice(0, open ? undefined : 8).map((it) => `<div><span class="p" title="${esc(it.path)}">${esc(it.project || it.path)}</span><span class="num">${fmtBytes(it.size)}</span><span style="color:var(--text-3)">${it.mtime ? ago(it.mtime) : ""}</span>${it.runtime ? `<button class="rowbtn" data-rt="${it.runtime}" data-name="${esc(it.path)}">Delete…</button>`
+      : it.deletable === false ? `<button class="rowbtn" data-reveal="${esc(it.path)}" title="Managed by macOS or outside your home folder — Pulse won't delete it">Finder</button>`
+      : `<button class="rowbtn" data-del="${esc(it.path)}" data-size="${it.size}">Delete…</button>`}</div>`).join("");
+    const nDel = (s.items || []).filter((it) => it.deletable !== false).length;
+    if (s.items && nDel) acts.unshift(`<button class="rowbtn" data-sg="${i}">Delete all ${nDel}${nDel < s.items.length ? " deletable" : ""}</button>`);
     return `<div class="sg"><div class="row1"><span class="safety ${s.safety}">${SAFETY[s.safety]}</span><b>${esc(s.name)}</b><span class="size num">${fmtBytes(s.size)}</span></div>
-      <div class="why">${esc(s.why)}</div><div class="acts">${acts.join("")}</div>${items ? `<div class="items">${items}${s.items.length > 8 ? `<div style="color:var(--text-3)">+ ${s.items.length - 8} more</div>` : ""}</div>` : ""}</div>`;
+      <div class="why">${esc(s.why)}</div><div class="acts">${acts.join("")}</div>${items ? `<div class="items">${items}${s.items.length > 8 ? `<div class="more"><button data-more="${esc(s.id)}">${open ? "Show less" : `+ ${s.items.length - 8} more`}</button></div>` : ""}</div>` : ""}</div>`;
   }).join("") : `<div class="empty">${ST.state.status === "scanning" ? "Looking for things you can clean up…" : "Nothing obvious to clean up."}</div>`;
 }
 
@@ -1147,14 +1167,14 @@ async function refreshStorage() { await loadState(); await openPath(ST.path, tru
 async function runSuggestion(s) {
   if (s.how === "contents") { const r = await post("/api/storage/delete", { path: s.path, mode: "contents" }); return r.freed; }
   if (s.how.startsWith("action:")) { const r = await post("/api/storage/action", { name: s.how.slice(7) }); return r.freed; }
-  if (s.items) { let f = 0; for (const it of s.items) { try {
+  if (s.items) { let f = 0; for (const it of s.items.filter((x) => x.deletable !== false)) { try {
     const r = it.runtime ? await post("/api/storage/action", { name: "sim_runtime:" + it.runtime }) : await post("/api/storage/delete", { path: it.path, mode: "permanent" });
     f += r.freed; } catch {} } return f; }
   return 0;
 }
 function askSuggestion(s) {
   const verb = s.how === "contents" ? "Clear" : s.items ? `Delete ${s.items.length} items in` : "Clean up";
-  const list = s.items ? s.items.map((it) => `${it.path} — ${fmtBytes(it.size)}`) : null;
+  const list = s.items ? s.items.filter((it) => it.deletable !== false).map((it) => `${it.path} — ${fmtBytes(it.size)}`) : null;
   modal(`${verb} ${s.name}?`, `${s.why}\n\nAbout ${fmtBytes(s.size)} will be permanently deleted.`, [
     [verb, async () => { toast("Working…"); const f = await runSuggestion(s); toast(`Freed ${fmtBytes(f)}`); await refreshStorage(); }, true]], list);
 }
@@ -1186,6 +1206,8 @@ document.addEventListener("click", async (e) => {
   if (rv) { e.stopPropagation(); post("/api/storage/reveal", { path: rv.dataset.reveal }).catch((x) => toast(x.message)); return; }
   const del = e.target.closest("[data-del]");
   if (del) { e.stopPropagation(); askDelete(del.dataset.del, del.dataset.size); return; }
+  const more = e.target.closest("[data-more]");
+  if (more) { e.stopPropagation(); const id = more.dataset.more; ST.expanded.has(id) ? ST.expanded.delete(id) : ST.expanded.add(id); renderSuggestions(); return; }
   const rt = e.target.closest("[data-rt]");
   if (rt) { e.stopPropagation(); modal(`Delete ${rt.dataset.name}?`, "Simulators using this iOS version stop working until you re-download it in Xcode > Settings > Components.", [
     ["Delete", async () => { toast("Deleting runtime…"); const r = await post("/api/storage/action", { name: "sim_runtime:" + rt.dataset.rt }); toast(`Freed ${fmtBytes(r.freed)}`); await refreshStorage(); }, true]]); return; }
@@ -1198,6 +1220,38 @@ document.addEventListener("click", async (e) => {
 
 // ------------------------------------------------------------------ data loop
 window.pulseShowFlags = () => { setView("perf"); document.querySelector(".flags")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
+// ------------------------------------------------------------------ resizable columns
+const SPLITS = {
+  side: { grid: () => document.querySelector(".main"), min: 260, max: 900,
+          cols: (w) => `minmax(0, 1fr) 12px ${w}px`, measure: (r, x) => r.right - x },
+  storage: { grid: () => document.querySelector(".st-grid"), min: 300, max: 2000,
+             cols: (w) => `${w}px 12px minmax(300px, 1fr)`, measure: (r, x) => x - r.left },
+};
+function applySplit(name, w) { const g = SPLITS[name].grid(); if (g) g.style.gridTemplateColumns = w ? SPLITS[name].cols(w) : ""; }
+try { for (const n in SPLITS) { const w = +localStorage.getItem("pulse-split-" + n); if (w) applySplit(n, w); } } catch {}
+document.addEventListener("mousedown", (e) => {
+  const sp = e.target.closest(".splitter"); if (!sp || e.button !== 0) return;
+  e.preventDefault();
+  const name = sp.dataset.split, cfg = SPLITS[name], grid = cfg.grid();
+  sp.classList.add("drag"); document.body.classList.add("resizing");
+  let w = null;
+  const move = (ev) => {
+    const r = grid.getBoundingClientRect();
+    w = Math.round(Math.max(cfg.min, Math.min(Math.min(cfg.max, r.width - 320), cfg.measure(r, ev.clientX))));
+    applySplit(name, w);
+  };
+  const up = () => {
+    sp.classList.remove("drag"); document.body.classList.remove("resizing");
+    removeEventListener("mousemove", move); removeEventListener("mouseup", up);
+    if (w) try { localStorage.setItem("pulse-split-" + name, w); } catch {}
+  };
+  addEventListener("mousemove", move); addEventListener("mouseup", up);
+});
+document.addEventListener("dblclick", (e) => {
+  const sp = e.target.closest(".splitter"); if (!sp) return;
+  applySplit(sp.dataset.split, 0); try { localStorage.removeItem("pulse-split-" + sp.dataset.split); } catch {}
+});
+
 function renderAll() { renderHeader(); renderTiles(); renderCharts(); renderFans(); renderFlags(); renderTable(); }
 let lastT = 0, busy = false;
 async function poll(force, bg) {

@@ -376,8 +376,9 @@ class Scanner:
             out.append({"id": "node_modules", "name": "node_modules in inactive projects", "safety": "safe",
                         "how": "list", "size": sum(n["size"] for n in stale), "path": None,
                         "why": "%d JavaScript projects untouched for 30+ days. `npm install` restores them." % len(stale),
-                        "items": sorted(stale, key=lambda n: -n["size"])[:60]})
-        old_installers = [{"path": p, "size": s, "mtime": m} for s, p, m in self.big_files
+                        "items": [dict(n, deletable=check_deletable(n["path"])[0])
+                                  for n in sorted(stale, key=lambda n: -n["size"])[:60]]})
+        old_installers = [{"path": p, "size": s, "mtime": m, "deletable": check_deletable(p)[0]} for s, p, m in self.big_files
                           if p.lower().endswith((".dmg", ".pkg", ".iso", ".xip", ".ipsw"))]
         if old_installers:
             out.append({"id": "installers", "name": "Installers & disk images", "safety": "review", "how": "list",
