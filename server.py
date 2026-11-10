@@ -1102,6 +1102,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200 if res.get("ok") else 400, res)
         if u.path == "/api/storage/action":
             res = storage.run_action(str(data.get("name")))
+            if res.get("ok") and res.get("forget"):
+                size = SCANNER.size_of(res["forget"]) or 0
+                SCANNER.forget(res["forget"], size)
+                res["freed"] = max(res["freed"], size)
             if res.get("ok"):
                 MON._event("info", "action", "%s - freed %s" % (res["label"], fmt_bytes(res["freed"])))
             return self._send(200 if res.get("ok") else 400, res)

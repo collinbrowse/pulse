@@ -211,6 +211,8 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .st-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) 12px minmax(0, 1fr); gap: 2px; margin-top: 16px; align-items: start; }
 /* paths in the Storage view wrap so they're always readable */
 #view-storage .ppath, #view-storage .pname { white-space: normal; overflow-wrap: anywhere; max-width: none; }
+.simsub { display: block; color: var(--text-3); font-size: 11.5px; font-weight: 400; margin-top: 2px; }
+.simsub .udid { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; opacity: .75; }
 .sg .items .more { border-top: 1px solid var(--grid); padding-top: 5px; }
 .sg .items .more button { border: 0; background: none; color: var(--s1); cursor: pointer; padding: 0; font: inherit; font-weight: 600; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; margin-bottom: 8px; font-size: 13px; }
@@ -1110,10 +1112,13 @@ function renderExplorer() {
     const known = c.known ? ` <span class="safety ${(ST.state.suggestions.find((s) => s.id === c.known) || {}).safety || "review"}">tip</span>` : "";
     return `<div class="exrow ${c.dir ? "dir" : ""}" ${c.dir ? `data-go="${esc(c.path)}"` : ""}>
       ${c.dir ? FOLDER : FILE}
-      <div class="nm"><div title="${esc(c.path)}">${esc(c.name)}${known}</div><div class="bar"><div style="width:${(c.size / max) * 100}%"></div></div></div>
+      <div class="nm"><div title="${esc(c.path)}">${esc(c.label || c.name)}${known}</div>
+        ${c.simdev ? `<div class="simsub">${esc(c.detail)} · ${c.last_used ? "used " + ago(c.last_used) : "never used"}<span class="udid">${esc(c.name)}</span></div>` : ""}
+        <div class="bar"><div style="width:${(c.size / max) * 100}%"></div></div></div>
       <div class="sz num">${fmtBytes(c.size)}<small>${pct >= 0.1 ? pct.toFixed(pct < 10 ? 1 : 0) + "%" : "&lt;0.1%"}</small></div>
       <div class="acts"><button class="rowbtn" data-reveal="${esc(c.path)}" title="Show in Finder">Finder</button>
-      ${c.deletable ? `<button class="rowbtn" data-del="${esc(c.path)}" data-size="${c.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</div></div>`;
+      ${c.simdev ? (c.booted ? "" : `<button class="rowbtn" data-simdev="${c.simdev}" data-name="${esc(c.label)}" data-detail="${esc(c.detail)}" data-size="${c.size}" style="color:var(--critical-ink)">Delete…</button>`)
+        : c.deletable ? `<button class="rowbtn" data-del="${esc(c.path)}" data-size="${c.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</div></div>`;
   });
   if (n.other > 0) rows.push(`<div class="exrow"><span></span><div class="nm" style="color:var(--text-3)">${n.other_count ? n.other_count + " more items" : "Smaller files"}</div><div class="sz num" style="color:var(--text-3)">${fmtBytes(n.other)}</div><div></div></div>`);
   $("ex-list").innerHTML = rows.join("") || `<div class="empty">Empty folder.</div>`;
@@ -1129,14 +1134,15 @@ function renderSuggestions() {
   $("sg-list").innerHTML = sg.length ? sg.map((s, i) => {
     const acts = [];
     if (s.how === "contents") acts.push(`<button class="rowbtn" data-sg="${i}">Clear</button>`);
-    if (s.how.startsWith("action:")) acts.push(`<button class="rowbtn" data-sg="${i}">${s.id === "trash" ? "Empty Trash" : "Clean up"}</button>`);
+    if (s.how.startsWith("action:")) acts.push(`<button class="rowbtn" data-sg="${i}">${s.id === "trash" ? "Empty Trash" : s.id === "simdevices" ? "Remove unavailable" : "Clean up"}</button>`);
     if (s.path) acts.push(`<button class="rowbtn" data-go="${esc(s.path)}">Explore</button><button class="rowbtn" data-reveal="${esc(s.path)}">Finder</button>`);
     const open = ST.expanded.has(s.id);
-    const items = (s.items || []).slice(0, open ? undefined : 8).map((it) => `<div><span class="p" title="${esc(it.path)}">${esc(it.project || it.path)}</span><span class="num">${fmtBytes(it.size)}</span><span style="color:var(--text-3)">${it.mtime ? ago(it.mtime) : ""}</span>${it.runtime ? `<button class="rowbtn" data-rt="${it.runtime}" data-name="${esc(it.path)}">Delete…</button>`
+    const items = (s.items || []).slice(0, open ? undefined : 8).map((it) => `<div><span class="p" title="${esc(it.folder || it.path)}">${esc(it.project || it.path)}${it.detail ? `<span class="simsub">${esc(it.detail)}</span>` : ""}</span><span class="num">${fmtBytes(it.size)}</span><span style="color:var(--text-3)">${it.mtime ? ago(it.mtime) : it.simdev ? "never used" : ""}</span>${it.simdev ? (it.deletable === false ? `<span class="badge">running</span>`
+      : `<button class="rowbtn" data-simdev="${it.simdev}" data-name="${esc(it.path)}" data-detail="${esc(it.detail || "")}" data-size="${it.size}">Delete…</button>`) : it.runtime ? `<button class="rowbtn" data-rt="${it.runtime}" data-name="${esc(it.path)}">Delete…</button>`
       : it.deletable === false ? `<button class="rowbtn" data-reveal="${esc(it.path)}" title="Managed by macOS or outside your home folder — Pulse won't delete it">Finder</button>`
       : `<button class="rowbtn" data-del="${esc(it.path)}" data-size="${it.size}">Delete…</button>`}</div>`).join("");
     const nDel = (s.items || []).filter((it) => it.deletable !== false).length;
-    if (s.items && nDel) acts.unshift(`<button class="rowbtn" data-sg="${i}">Delete all ${nDel}${nDel < s.items.length ? " deletable" : ""}</button>`);
+    if (s.items && nDel && !s.no_bulk) acts.unshift(`<button class="rowbtn" data-sg="${i}">Delete all ${nDel}${nDel < s.items.length ? " deletable" : ""}</button>`);
     return `<div class="sg"><div class="row1"><span class="safety ${s.safety}">${SAFETY[s.safety]}</span><b>${esc(s.name)}</b><span class="size num">${fmtBytes(s.size)}</span></div>
       <div class="why">${esc(s.why)}</div><div class="acts">${acts.join("")}</div>${items ? `<div class="items">${items}${s.items.length > 8 ? `<div class="more"><button data-more="${esc(s.id)}">${open ? "Show less" : `+ ${s.items.length - 8} more`}</button></div>` : ""}</div>` : ""}</div>`;
   }).join("") : `<div class="empty">${ST.state.status === "scanning" ? "Looking for things you can clean up…" : "Nothing obvious to clean up."}</div>`;
@@ -1168,7 +1174,7 @@ async function runSuggestion(s) {
   if (s.how === "contents") { const r = await post("/api/storage/delete", { path: s.path, mode: "contents" }); return r.freed; }
   if (s.how.startsWith("action:")) { const r = await post("/api/storage/action", { name: s.how.slice(7) }); return r.freed; }
   if (s.items) { let f = 0; for (const it of s.items.filter((x) => x.deletable !== false)) { try {
-    const r = it.runtime ? await post("/api/storage/action", { name: "sim_runtime:" + it.runtime }) : await post("/api/storage/delete", { path: it.path, mode: "permanent" });
+    const r = it.simdev ? await post("/api/storage/action", { name: "sim_device:" + it.simdev }) : it.runtime ? await post("/api/storage/action", { name: "sim_runtime:" + it.runtime }) : await post("/api/storage/delete", { path: it.path, mode: "permanent" });
     f += r.freed; } catch {} } return f; }
   return 0;
 }
@@ -1208,6 +1214,10 @@ document.addEventListener("click", async (e) => {
   if (del) { e.stopPropagation(); askDelete(del.dataset.del, del.dataset.size); return; }
   const more = e.target.closest("[data-more]");
   if (more) { e.stopPropagation(); const id = more.dataset.more; ST.expanded.has(id) ? ST.expanded.delete(id) : ST.expanded.add(id); renderSuggestions(); return; }
+  const sd = e.target.closest("[data-simdev]");
+  if (sd) { e.stopPropagation(); modal(`Delete simulator “${sd.dataset.name}”?`,
+    `${sd.dataset.detail}\n${fmtBytes(+sd.dataset.size)} · ID ${sd.dataset.simdev}\n\nRemoves the simulator and everything installed on it (apps and their data) using Xcode's own simctl. This can't be undone, but you can create a new simulator in Xcode any time.`, [
+    ["Delete", async () => { toast("Deleting simulator…"); const r = await post("/api/storage/action", { name: "sim_device:" + sd.dataset.simdev }); toast(`Freed ${fmtBytes(r.freed)}`); await refreshStorage(); }, true]]); return; }
   const rt = e.target.closest("[data-rt]");
   if (rt) { e.stopPropagation(); modal(`Delete ${rt.dataset.name}?`, "Simulators using this iOS version stop working until you re-download it in Xcode > Settings > Components.", [
     ["Delete", async () => { toast("Deleting runtime…"); const r = await post("/api/storage/action", { name: "sim_runtime:" + rt.dataset.rt }); toast(`Freed ${fmtBytes(r.freed)}`); await refreshStorage(); }, true]]); return; }

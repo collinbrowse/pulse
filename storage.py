@@ -1,5 +1,7 @@
 """Storage analysis for Pulse: disk scanner, cleanup suggestions and safe deletion."""
 import calendar
+import glob
+import plistlib
 import heapq
 import json
 import re
@@ -355,8 +357,16 @@ class Scanner:
         for name, size, isdir, files in n["children"]:
             cp = os.path.join(display(rp), name)
             ok, _ = check_deletable(cp)
-            kids.append({"name": name, "path": cp, "size": size, "dir": isdir, "files": files,
-                         "deletable": ok, "known": next((k["id"] for k in KNOWN if k["path"] == cp), None)})
+            kid = {"name": name, "path": cp, "size": size, "dir": isdir, "files": files,
+                   "deletable": ok, "known": next((k["id"] for k in KNOWN if k["path"] == cp), None)}
+            if isdir and UUID_RE.match(name) and any(display(rp) == f for f, _, _ in SIM_SETS):
+                dev = sim_devices().get(name)
+                if dev:
+                    kid.update(label=dev["label"], detail=" · ".join(sim_detail(dev)), simdev=dev["udid"],
+                               last_used=dev["last_used"], booted=dev["booted"])
+            elif isdir and name == "Devices" and display(rp) == H("Library/Developer/CoreSimulator"):
+                kid["label"] = "Devices (iOS Simulators)"
+            kids.append(kid)
         return {"path": display(rp), "size": n["size"], "files": n["files"], "children": kids,
                 "other": n["other"], "other_count": n["other_count"], "done": n["done"]}
 
@@ -385,6 +395,18 @@ class Scanner:
                         "size": sum(i["size"] for i in old_installers), "path": None,
                         "why": "Large .dmg/.pkg/.iso/.xip/.ipsw files. Once an app is installed the installer isn't needed.",
                         "items": sorted(old_installers, key=lambda n: -n["size"])})
+        devs = [d for d in sim_devices(self).values() if d["set"] is None]
+        for d in devs:
+            d["size"] = self.size_of(d["path"]) or 0
+        for sg in out:
+            if sg["id"] == "simdevices" and devs:
+                sg["items"] = [{"path": d["label"], "simdev": d["udid"], "size": d["size"], "mtime": d["last_used"],
+                                "detail": " · ".join(sim_detail(d)), "deletable": not d["booted"],
+                                "folder": d["path"]}
+                               for d in sorted(devs, key=lambda d: -d["size"])]
+                sg["no_bulk"] = True
+                sg["why"] = ("Each simulator keeps its own copy of installed apps and their data. Delete the ones "
+                             "you don't need - the list shows each device's name, iOS version, last use and apps.")
         rts = sim_runtimes()
         if rts:
             out.append({"id": "simruntimes", "name": "Simulator runtimes", "safety": "review", "how": "list",
@@ -515,6 +537,80 @@ ACTIONS = {
 }
 
 
+SIM_SETS = [  # (folder, label, simctl --set argument or None for the default set)
+    (H("Library/Developer/CoreSimulator/Devices"), None, None),
+    (H("Library/Developer/XCTestDevices"), "Test clone", H("Library/Developer/XCTestDevices")),
+    (H("Library/Developer/XCPGDevices"), "Playground", H("Library/Developer/XCPGDevices")),
+]
+UUID_RE = re.compile(r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$")
+_sim_cache = {"t": 0, "v": {}}
+
+
+_type_names = {}
+
+
+def _pretty_type(ident):
+    """Device type display name from Xcode (e.g. 'iPad Air 11-inch (M4)')."""
+    if not _type_names:
+        code, out = run(["xcrun", "simctl", "list", "devicetypes", "-j"], timeout=20)
+        try:
+            for t in json.loads(out[out.index("{"):])["devicetypes"]:
+                _type_names[t["identifier"]] = t["name"]
+        except Exception:
+            _type_names["_"] = ""
+    return _type_names.get(ident) or (ident or "").rsplit(".", 1)[-1].replace("-", " ") or "Simulator"
+
+
+def _pretty_runtime(ident):
+    tail = (ident or "").rsplit(".", 1)[-1]          # iOS-27-0
+    m = re.match(r"([A-Za-z]+)-(\d+)-(\d+)", tail)
+    return "%s %s.%s" % m.groups() if m else tail
+
+
+def sim_devices(scanner=None):
+    """udid -> human description of every simulator, from each device's own device.plist."""
+    if time.time() - _sim_cache["t"] < 60:
+        return _sim_cache["v"]
+    out = {}
+    for folder, set_label, set_arg in SIM_SETS:
+        for plist in glob.glob(os.path.join(folder, "*", "device.plist")):
+            udid = os.path.basename(os.path.dirname(plist))
+            if not UUID_RE.match(udid):
+                continue
+            try:
+                with open(plist, "rb") as f:
+                    d = plistlib.load(f)
+            except Exception:
+                continue
+            path = os.path.dirname(plist)
+            apps = sorted({os.path.basename(a)[:-4] for a in
+                           glob.glob(os.path.join(path, "data/Containers/Bundle/Application/*/*.app"))})
+            dtype, runtime = _pretty_type(d.get("deviceType")), _pretty_runtime(d.get("runtime"))
+            name = d.get("name") or dtype
+            used = d.get("lastUsedAt")
+            used_ts = calendar.timegm(used.utctimetuple()) if hasattr(used, "utctimetuple") else 0
+            booted = d.get("state") == 3
+            label = name if name == dtype else "%s (%s)" % (name, dtype)
+            label += " · " + runtime
+            out[udid] = {
+                "udid": udid, "path": path, "name": name, "type": dtype, "runtime": runtime,
+                "label": label, "booted": booted, "last_used": used_ts, "apps": apps,
+                "set": set_label, "set_arg": set_arg,
+                "size": scanner.size_of(path) if scanner else None,
+            }
+    _sim_cache.update(t=time.time(), v=out)
+    return out
+
+
+def sim_detail(dev):
+    bits = ["Running now" if dev["booted"] else "Not running"]
+    if dev["set"]:
+        bits.append(dev["set"])
+    bits.append(("apps: " + ", ".join(dev["apps"][:6]) + (" +%d" % (len(dev["apps"]) - 6) if len(dev["apps"]) > 6 else ""))
+                if dev["apps"] else "no apps installed")
+    return bits
+
+
 _rt_cache = {"t": 0, "v": []}
 
 
@@ -542,10 +638,30 @@ def sim_runtimes():
 
 
 def run_action(name):
-    m = re.match(r"^sim_runtime:([0-9A-Fa-f-]{36})$", name or "")
+    forget_path = None
+    m = re.match(r"^sim_device:([0-9A-Fa-f-]{36})$", name or "")
+    if m:
+        udid = m.group(1).upper()
+        dev = sim_devices().get(udid)
+        if not dev:                      # created since the last look: refresh once
+            _sim_cache["t"] = 0
+            dev = sim_devices().get(udid)
+        if not dev:
+            return {"ok": False, "error": "That simulator no longer exists"}
+        if dev["booted"]:
+            return {"ok": False, "error": "%s is running - shut it down first" % dev["name"]}
+        cmd = ["xcrun", "simctl"] + (["--set", dev["set_arg"]] if dev["set_arg"] else []) + ["delete", dev["udid"]]
+        label = "Deleted simulator %s" % dev["label"]
+        forget_path = dev["path"]
+        _sim_cache["t"] = 0
+        m = None
+    else:
+        m = re.match(r"^sim_runtime:([0-9A-Fa-f-]{36})$", name or "")
     if m:
         cmd, label = ["xcrun", "simctl", "runtime", "delete", m.group(1)], "Deleted simulator runtime"
         _rt_cache["t"] = 0
+    elif name.startswith("sim_device:"):
+        pass
     elif name not in ACTIONS:
         return {"ok": False, "error": "Unknown action"}
     else:
@@ -554,6 +670,7 @@ def run_action(name):
     code, out = run(cmd, timeout=600)
     after = shutil.disk_usage("/System/Volumes/Data" if os.path.exists("/System/Volumes/Data") else "/").free
     return {"ok": code == 0, "label": label, "output": out[-800:], "freed": max(0, after - before),
+            "forget": forget_path if code == 0 else None,
             "error": None if code == 0 else (out[-300:] or "Command failed")}
 
 
