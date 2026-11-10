@@ -20,6 +20,7 @@
   --good-ink: #006300; --warning-ink: #8a5a00; --serious-ink: #a8431c; --critical-ink: #b02a2a;
   --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
   --hatch: repeating-linear-gradient(135deg, #c9c8c2 0 4px, #e6e5e0 4px 8px);
+  --purge: repeating-linear-gradient(90deg, #d7e6f8 0 2px, #eef4fc 2px 6px);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -30,6 +31,8 @@
     --good-ink: #5fd35f; --warning-ink: #fab219; --serious-ink: #ec835a; --critical-ink: #f07070;
     --shadow: none;
     --hatch: repeating-linear-gradient(135deg, #4a4a46 0 4px, #2c2c2a 4px 8px);
+  --purge: repeating-linear-gradient(90deg, #2b4566 0 2px, #1d2b3d 2px 6px);
+    --purge: repeating-linear-gradient(90deg, #2b4566 0 2px, #1d2b3d 2px 6px);
   }
 }
 :root[data-theme="dark"] {
@@ -409,8 +412,8 @@ details.why p { margin: 6px 0 0; }
         <div class="step" id="step-fda">
           <span class="st-ico" id="fda-ico"></span>
           <div class="st-body"><b>Full Disk Access for Pulse Scanner</b><span class="st-desc" id="fda-desc"></span>
-            <ol class="fda-steps" id="fda-steps"><li>Click <b>Set up…</b>: System Settings opens at Full Disk Access, and Finder shows <b>Pulse Scanner</b>.</li>
-              <li>Drag <b>Pulse Scanner</b> into the list (or click <b>+</b> and pick it) and switch it on.</li>
+            <ol class="fda-steps" id="fda-steps"><li>Click <b>Set up…</b>: System Settings opens at Full Disk Access, and Finder shows <b>Pulse Scanner</b> in Applications.</li>
+              <li>Drag <b>Pulse Scanner</b> into the list (or click <b>+</b> › Applications › Pulse Scanner) and switch it on.</li>
               <li>Come back here. Pulse notices and rescans on its own.</li></ol></div>
           <div class="st-act"><button class="btn" id="fda-open">Set up…</button><button class="ghost" id="fda-check">Check again</button></div>
         </div>
@@ -464,12 +467,16 @@ const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const fmtBytes = (n, d = 1) => {
+// Units match macOS: storage, files and network use decimal units (1 GB = 1,000,000,000 bytes,
+// like Finder and System Settings); memory uses 1024-based units (like Activity Monitor / "64 GB RAM").
+const fmtUnits = (n, base, d = 1) => {
   if (n == null || isNaN(n)) return "–";
   const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
-  while (Math.abs(n) >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  while (Math.abs(n) >= base && i < u.length - 1) { n /= base; i++; }
   return (i < 2 ? Math.round(n) : n.toFixed(n >= 100 ? 0 : d)) + " " + u[i];
 };
+const fmtBytes = (n, d = 1) => fmtUnits(n, 1000, d);
+const fmtMem = (n, d = 1) => fmtUnits(n, 1024, d);
 const fmtRate = (n) => fmtBytes(n) + "/s";
 const fmtGB = (n) => (n / 2 ** 30).toFixed(1) + " GB";
 const fmtDur = (s) => {
@@ -694,7 +701,7 @@ function makeCharts(interval) {
     ch.draw = function () {
       const data = this.data || []; let mx = 0;
       for (const d of data) for (const s of this.o.series) { const v = s.get(d); if (v > mx) mx = v; }
-      this.o.max = niceBytesMax(Math.max(mx * 1.1, 64 * 1024)); orig();
+      this.o.max = niceMax(Math.max(mx * 1.1, 64e3)); orig();
     };
   }
   C.mem.draw = ((orig) => function () { const l = S.samples[S.samples.length - 1]; if (l && l.mem) this.o.max = l.mem.total; orig(); })(C.mem.draw.bind(C.mem));
@@ -729,7 +736,7 @@ function renderCharts() {
   if (l.mem) {
     const m = l.mem;
     legend("lg-mem", [["App", "--s1", fmtGB(m.app)], ["Wired", "--s2", fmtGB(m.wired)], ["Compressed", "--s3", fmtGB(m.comp)], ["Cached", "--s4", fmtGB(m.cached)]]);
-    $("mem-meta").textContent = `swap ${fmtBytes(m.swap)} · ${["", "normal", "elevated", "", "critical"][m.pressure] || "normal"} pressure`;
+    $("mem-meta").textContent = `swap ${fmtMem(m.swap)} · ${["", "normal", "elevated", "", "critical"][m.pressure] || "normal"} pressure`;
   }
   if (l.temp) {
     const t = l.temp, f = (v) => (v == null ? "–" : v.toFixed(0) + "°");
@@ -821,12 +828,12 @@ function renderTiles() {
     { k: "cpu", lbl: "CPU", cats: ["CPU"], val: l.cpu ? `${l.cpu.total.toFixed(0)}<small>%</small>` : "–",
       sub: `${S.meta?.ncpu} cores · load ${l.load.toFixed(0)}`, spark: tail.map((d) => get(d, "cpu.total")), max: 100 },
     { k: "mem", lbl: "Memory", cats: ["Memory"], val: l.mem ? `${(l.mem.used / 2 ** 30).toFixed(1)}<small>/ ${Math.round(l.mem.total / 2 ** 30)} GB</small>` : "–",
-      sub: l.mem ? `swap ${fmtBytes(l.mem.swap)}` : "", spark: tail.map((d) => get(d, "mem.used")), max: l.mem?.total },
+      sub: l.mem ? `swap ${fmtMem(l.mem.swap)}` : "", spark: tail.map((d) => get(d, "mem.used")), max: l.mem?.total },
     { k: "temp", lbl: "Chip temp", cats: ["Temperature"], val: l.temp?.cpu_max != null ? `${l.temp.cpu_max.toFixed(0)}<small>°C</small>` : "–",
       sub: live.thermal_limit < 100 ? `throttled to ${live.thermal_limit}%` : "no throttling", spark: tail.map((d) => get(d, "temp.cpu_max")) },
     { k: "gpu", lbl: "GPU", cats: [], val: l.gpu != null ? `${l.gpu}<small>%</small>` : "–", sub: l.temp?.gpu ? `${l.temp.gpu.toFixed(0)}°C` : "", spark: tail.map((d) => d.gpu), max: 100 },
-    { k: "disk", lbl: "Disk", cats: ["Disk"], val: du.total ? `${fmtBytes(du.free, 0).replace(" ", "<small>")} free</small>` : "–",
-      sub: du.total ? `${du.pct}% of ${fmtBytes(du.total, 0)} used` : "", spark: tail.map((d) => (get(d, "disk.r") || 0) + (get(d, "disk.w") || 0)) },
+    { k: "disk", lbl: "Disk", cats: ["Disk"], val: du.total ? `${fmtBytes(du.available ?? du.free, 0).replace(" ", "<small>")} available</small>` : "–",
+      sub: du.total ? `${du.pct}% of ${fmtBytes(du.total, 0)} used${du.purgeable > 1e9 ? ` · ${fmtBytes(du.free, 0)} free now` : ""}` : "", spark: tail.map((d) => (get(d, "disk.r") || 0) + (get(d, "disk.w") || 0)) },
     { k: "net", lbl: "Network", cats: ["Network"], val: l.net ? `${fmtBytes(l.net.rx, 0).replace(" ", "<small>")}/s</small>` : "–",
       sub: l.net ? `↓ ${fmtRate(l.net.rx)} · ↑ ${fmtRate(l.net.tx)}` : "", spark: tail.map((d) => (get(d, "net.rx") || 0) + (get(d, "net.tx") || 0)) },
     { k: "bat", lbl: b.percent != null ? "Battery" : "Power", cats: ["Battery"],
@@ -849,7 +856,7 @@ function renderTiles() {
 function renderHeader() {
   const m = S.meta, live = S.live; if (!m) return;
   $("machine").textContent = `${m.host} · ${m.chip} · macOS ${m.macos}` + (live?.uptime ? ` · up ${fmtDur(live.uptime)}` : "") + (live ? ` · ${live.proc_count} processes` : "")
-    + (live?.overhead?.cpu != null ? ` · Pulse itself: ${live.overhead.cpu.toFixed(1)}% CPU, ${fmtBytes(live.overhead.rss)}` : "");
+    + (live?.overhead?.cpu != null ? ` · Pulse itself: ${live.overhead.cpu.toFixed(1)}% CPU, ${fmtMem(live.overhead.rss)}` : "");
   const fl = (live?.flags || []).filter((f) => !f.ignored);
   const worst = fl.reduce((a, f) => Math.max(a, RANK[f.severity]), -1);
   const counts = {}; fl.forEach((f) => { if (RANK[f.severity] >= 1) counts[f.severity] = (counts[f.severity] || 0) + 1; });
@@ -927,7 +934,7 @@ function renderTable() {
         const flagged = a.pids.some((p) => flags[p]);
         return `<tr class="${flagged ? "hl" : ""}"><td><div class="pname">${esc(a.app)}</div></td><td class="r num">${a.count}</td>
         <td class="r num">${a.cpu.toFixed(1)}%<span class="mbar"><div style="width:${Math.min(100, (a.cpu / maxCpu) * 100)}%"></div></span></td>
-        <td class="r num">${fmtBytes(a.rss)}<span class="mbar"><div style="width:${Math.min(100, (a.rss / ram) * 100 * 4)}%"></div></span></td>
+        <td class="r num">${fmtMem(a.rss)}<span class="mbar"><div style="width:${Math.min(100, (a.rss / ram) * 100 * 4)}%"></div></span></td>
         <td class="r"><button class="rowbtn" data-act="filter" data-q="${esc(a.app)}">Details</button></td></tr>`;
       }).join("") + `</tbody></table>`;
   } else if (S.tab === "procs") {
@@ -941,7 +948,7 @@ function renderTable() {
         <td><div class="pname">${f ? `<span style="color:var(${SEV[f.severity].ci})">${SEV[f.severity].icon}</span> ` : ""}${esc(p.name)}</div><div class="ppath" title="${esc(p.path)}">${esc(p.path)}</div></td>
         <td class="r num">${p.pid}</td><td>${esc(p.user)}</td>
         <td class="r num">${p.cpu.toFixed(1)}%</td><td><canvas class="spark" data-spark="${p.cpu_hist.join(",")}"></canvas></td>
-        <td class="r num">${fmtBytes(p.rss)}</td><td class="r num">${fmtDur(p.age)}</td><td>${sigBadge(p)}</td>
+        <td class="r num">${fmtMem(p.rss)}</td><td class="r num">${fmtDur(p.age)}</td><td>${sigBadge(p)}</td>
         <td class="r">${p.uid === S.meta.uid ?`<button class="rowbtn" data-act="kill" data-pid="${p.pid}">Quit…</button>` : ""}</td></tr>`;
       }).join("") + `</tbody></table>` +
       (live.proc_count > live.procs.length ? `<div class="empty">Showing the ${live.procs.length} busiest of ${live.proc_count} processes.</div>` : "");
@@ -1108,8 +1115,11 @@ async function openPath(path, quiet) {
 
 function renderDisk() {
   const st = ST.state, d = st.disk;
-  $("st-free").innerHTML = `${fmtBytes(d.free)} <span style="font-size:15px;font-weight:500;color:var(--text-2)">free</span>`;
-  $("st-used").textContent = `${fmtBytes(d.used)} used of ${fmtBytes(d.total)} (${d.pct}%)`;
+  // Same numbers as System Settings › General › Storage (decimal GB, "Available" incl. purgeable)
+  const avail = d.available ?? d.free;
+  $("st-free").innerHTML = `${fmtBytes(avail)} <span style="font-size:15px;font-weight:500;color:var(--text-2)">available</span>`;
+  $("st-used").textContent = `${fmtBytes(d.used)} used of ${fmtBytes(d.total)}` +
+    (d.purgeable > 1e9 ? ` · ${fmtBytes(d.free)} free right now + ${fmtBytes(d.purgeable)} macOS can purge when needed` : "");
   const scanning = st.status === "scanning";
   $("st-progress").hidden = !scanning;
   $("st-scan").textContent = scanning ? `Scanning… ${st.files.toLocaleString()} files · ${fmtBytes(st.bytes)} · ${st.current || ""}`.slice(0, 140)
@@ -1117,13 +1127,15 @@ function renderDisk() {
   $("st-rescan").disabled = scanning; $("st-rescan").textContent = scanning ? "Scanning…" : "Rescan";
   // ---- coverage: how much of the disk Pulse can actually see, and how to see the rest
   const vol = st.volumes, dataUsed = vol ? vol.data_used : d.used;
-  const seen = Math.min(st.scanned_total || 0, dataUsed), hiddenBytes = Math.max(0, dataUsed - seen);
+  const seen = Math.min(st.scanned_total || 0, dataUsed);
+  const hiddenBytes = Math.max(0, dataUsed - seen - (d.purgeable || 0));
   const sys = st.system_scan || {}, fa = st.full_access;
   const done = st.status === "done";
   $("coverage").hidden = !done && !st.finished;
   const pctSeen = dataUsed ? Math.round((seen / dataUsed) * 100) : 0;
   $("cov-title").textContent = `Pulse can see ${fmtBytes(seen)} of the ${fmtBytes(dataUsed)} stored on your Mac (${pctSeen}%)`;
-  $("cov-sub").textContent = hiddenBytes > 5 * 2 ** 30 ? ` · ${fmtBytes(hiddenBytes)} is in folders macOS hasn't let it into yet` : " · that's everything";
+  $("cov-sub").textContent = (hiddenBytes > 5e9 ? ` · ${fmtBytes(hiddenBytes)} is in places Pulse can't read`
+    : " · everything else is accounted for") + (d.purgeable > 1e9 ? `; ${fmtBytes(d.purgeable)} is purgeable space macOS manages itself` : "");
   const okIco = `<span style="color:var(--good-ink);display:inline-flex">${SEV.good.icon}</span>`;
   const warnIco = `<span style="color:var(--warning-ink);display:inline-flex">${SEV.warning.icon}</span>`;
   $("fda-ico").innerHTML = fa ? okIco : warnIco;
@@ -1155,15 +1167,17 @@ function renderDisk() {
     parts.push(["System data", "--s4", (by.private || 0) + (by.usr || 0) + (by.opt || 0) + (by.cores || 0) + (by.System || 0)]);
     const other = root.size - parts.reduce((a, p) => a + p[2], 0);
     parts.push(["Other folders", "--s5", Math.max(0, other)]);
-    parts.push(["Hidden from Pulse", "hatch", Math.max(0, dataUsed - root.size)]);
+    const purge = d.purgeable || 0;
+    parts.push(["Hidden from Pulse", "hatch", Math.max(0, dataUsed - root.size - purge)]);
+    if (purge > 1e9) parts.push(["Purgeable (macOS frees it automatically)", "purge", purge]);
     if (vol) for (const [label, bytes] of vol.others) parts.push([label, "--text-3", bytes]);
   } else parts.push(["Used", "--s1", d.used]);
-  parts.push(["Free", "--surface-2", d.free]);
-  const bg = (c) => (c === "hatch" ? "var(--hatch)" : `var(${c})`);
+  parts.push(["Free now", "--surface-2", d.free]);
+  const bg = (c) => (c === "hatch" ? "var(--hatch)" : c === "purge" ? "var(--purge)" : `var(${c})`);
   $("st-bar").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
     `<div style="flex:${v};background:${bg(c)}" title="${esc(l)}: ${fmtBytes(v)}"></div>`).join("");
   $("st-legend").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
-    `<span><i style="background:${bg(c)};${c === "--surface-2" || c === "hatch" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
+    `<span><i style="background:${bg(c)};${c === "--surface-2" || c === "hatch" || c === "purge" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
   // fetch root + home totals occasionally for the bar
   if (!ST.rootNode || Date.now() - (ST.rootAt || 0) > (scanning ? 4000 : 60000)) {
     ST.rootAt = Date.now();

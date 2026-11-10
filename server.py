@@ -171,12 +171,22 @@ def is_sim(path):
     return "CoreSimulator" in path or "SimulatorRuntime" in path or path.endswith("_sim")
 
 
-def fmt_bytes(n):
+def _fmt_units(n, base):
     n = float(n)
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(n) < 1024 or unit == "TB":
+        if abs(n) < base or unit == "TB":
             return ("%.0f %s" if unit in ("B", "KB") else "%.1f %s") % (n, unit)
-        n /= 1024
+        n /= base
+
+
+def fmt_bytes(n):
+    """Storage/network sizes in decimal units, like Finder and System Settings."""
+    return _fmt_units(n, 1000)
+
+
+def fmt_mem(n):
+    """Memory sizes in 1024-based units, like Activity Monitor."""
+    return _fmt_units(n, 1024)
 
 
 # --------------------------------------------------------------------------- code signing
@@ -260,6 +270,7 @@ class Monitor:
         self._prev_stuck = set()
         self.notify_queue = deque(maxlen=20)
         self.probe_proc = None
+        self.capacity = None
         self.last_client = 0
         self.last_run = {}
         self.was_active = False
@@ -373,8 +384,13 @@ class Monitor:
         st = os.statvfs(path)
         total = st.f_blocks * st.f_frsize
         free = st.f_bavail * st.f_frsize
-        return {"total": total, "free": free, "used": total - free,
-                "pct": round(100.0 * (total - free) / total, 1) if total else 0}
+        # "Available" exactly as System Settings shows it: free now + space macOS purges on demand
+        # (read by the sampler thread through the probe; see collect()).
+        cap = self.capacity or {}
+        available = cap.get("available") if cap.get("available", -1) >= free else free
+        return {"total": total, "free": free, "available": available,
+                "purgeable": max(0, available - free), "used": total - available,
+                "pct": round(100.0 * (total - available) / total, 1) if total else 0}
 
     def _ports(self):
         out = run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"], timeout=15)
@@ -591,6 +607,7 @@ class Monitor:
         if self.due("battery", 10, 60):
             self.battery = self._battery()
             self.thermal_limit = self._thermal()
+            self.capacity = self._ask("c") or self.capacity
             self.disk_usage = self._disk_usage()
         if self.due("ports", 60, 600):
             self.ports = self._ports()
@@ -711,11 +728,11 @@ class Monitor:
             self._set_flag(pr >= 2, "mem:pressure", "critical" if pr >= 4 else "serious", "Memory",
                            "Memory pressure is %s" % ("critical" if pr >= 4 else "high"),
                            "macOS is compressing %s and swapping to disk. Quit memory-heavy apps." %
-                           fmt_bytes(m["comp"]))
+                           fmt_mem(m["comp"]))
             swap_pct = 100.0 * m["swap"] / m["swap_total"] if m["swap_total"] else 0
             self._set_flag(m["swap"] > 8 * 2 ** 30 or swap_pct > 85, "mem:swap",
                            "serious" if m["swap"] > 16 * 2 ** 30 else "warning", "Memory",
-                           "Heavy swap usage: %s" % fmt_bytes(m["swap"]),
+                           "Heavy swap usage: %s" % fmt_mem(m["swap"]),
                            "Swap is %.0f%% of its current size. Swapping wears the SSD and slows the Mac. "
                            "A restart clears it." % swap_pct)
 
@@ -742,8 +759,10 @@ class Monitor:
             sev = "critical" if free_pct < 5 else "serious" if free_pct < 10 else "warning"
             self._set_flag(free_pct < 15, "disk:free", sev, "Disk",
                            "Startup disk is %.0f%% full" % du["pct"],
-                           "Only %s free. macOS needs room for swap and updates - below ~10%% things break." %
-                           fmt_bytes(du["free"]))
+                           "Only %s available (%s free now%s). macOS needs room for swap and updates - "
+                           "below ~10%% things break." % (
+                               fmt_bytes(du["available"]), fmt_bytes(du["free"]),
+                               " + %s macOS can purge" % fmt_bytes(du["purgeable"]) if du["purgeable"] > 1e9 else ""))
 
         # --- battery health
         b = self.battery
@@ -820,10 +839,10 @@ class Monitor:
                     if last - first > 1 * 2 ** 30 and ups > 0.6 * (len(h) - 1):
                         proc_flag(p, "leak", "warning", "%s memory keeps growing" % p["app"],
                                   "Grew %s in %.0f minutes (now %s) without dropping - possible leak." %
-                                  (fmt_bytes(last - first), span / 60, fmt_bytes(last)))
+                                  (fmt_mem(last - first), span / 60, fmt_mem(last)))
             # big memory
             if total_mem and p["rss"] > max(4 * 2 ** 30, 0.15 * total_mem):
-                proc_flag(p, "mem", "warning", "%s is using %s of memory" % (p["app"], fmt_bytes(p["rss"])),
+                proc_flag(p, "mem", "warning", "%s is using %s of memory" % (p["app"], fmt_mem(p["rss"])),
                           "Pid %d - %.0f%% of your RAM." % (p["pid"], 100.0 * p["rss"] / total_mem))
             # signature / location
             sig = p.get("sig")
@@ -864,7 +883,7 @@ class Monitor:
                 self._set_flag(True, key, "warning", "Process",
                                "%d copies of %s are running" % (len(lst), lst[0]["name"]),
                                "Together using %.0f%% CPU and %s." %
-                               (sum(p["cpu"] for p in lst), fmt_bytes(sum(p["rss"] for p in lst))),
+                               (sum(p["cpu"] for p in lst), fmt_mem(sum(p["rss"] for p in lst))),
                                pid=lst[0]["pid"])
 
         # iOS simulators left running
@@ -877,7 +896,7 @@ class Monitor:
                        "iOS Simulator%s: %d background processes" % ("" if sim_ui else " left running", len(sim)),
                        "%d simulator runtime(s) using %.0f%% CPU%s. %s" %
                        (runtimes or 1, sim_cpu,
-                        " and ~%s" % fmt_bytes(sim_mem) if total_mem and sim_mem < total_mem else "",
+                        " and ~%s" % fmt_mem(sim_mem) if total_mem and sim_mem < total_mem else "",
                         "Shut down devices you aren't using (Simulator > Device > Shut Down, or "
                         "`xcrun simctl shutdown all`)." ),
                        action="simctl")

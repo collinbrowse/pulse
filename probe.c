@@ -250,6 +250,24 @@ static void fans(void) {
   printf("]");
 }
 
+// What System Settings calls "Available": free space plus space macOS can purge on demand.
+static void capacity(void) {
+  long long total = -1, free_now = -1, important = -1;
+  CFURLRef u = CFURLCreateWithFileSystemPath(NULL, CFSTR("/"), kCFURLPOSIXPathStyle, true);
+  const CFStringRef keys[3] = {kCFURLVolumeTotalCapacityKey, kCFURLVolumeAvailableCapacityKey,
+                               kCFURLVolumeAvailableCapacityForImportantUsageKey};
+  long long *out[3] = {&total, &free_now, &important};
+  for (int i = 0; i < 3; i++) {
+    CFTypeRef v = NULL;
+    if (CFURLCopyResourcePropertyForKey(u, keys[i], &v, NULL) && v) {
+      if (CFGetTypeID(v) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)v, kCFNumberLongLongType, out[i]);
+      CFRelease(v);
+    }
+  }
+  CFRelease(u);
+  printf("{\"total\":%lld,\"free\":%lld,\"available\":%lld}\n", total, free_now, important);
+}
+
 static void sample(void) {
   putchar('{');
   cpu(); putchar(','); mem(); putchar(','); temps(); putchar(',');
@@ -263,7 +281,7 @@ int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--once") == 0) { sample(); return 0; }
   char line[64];
   while (fgets(line, sizeof line, stdin)) {
-    if (line[0] == 'p') procs(); else sample();
+    if (line[0] == 'p') procs(); else if (line[0] == 'c') capacity(); else sample();
     fflush(stdout);
   }
   return 0;

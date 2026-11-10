@@ -49,9 +49,8 @@ if [ ! -d "$SC_CACHE" ]; then
 PLIST
   codesign --force --sign - --identifier local.pulse.scanner "$SC_CACHE" >/dev/null
 fi
-SC="$APP/Contents/Library/Pulse Scanner.app"
-mkdir -p "$APP/Contents/Library"
-cp -R "$SC_CACHE" "$SC"
+# Pulse Scanner is installed as its own app next to Pulse (not inside it) and is only replaced
+# when the scanner itself changes - so Pulse updates never disturb its Full Disk Access.
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -82,6 +81,14 @@ if [ "${1:-}" != "--no-install" ]; then
   rm -rf "$DEST/Pulse.app"
   cp -R "$APP" "$DEST/"
   echo "✓ Installed $DEST/Pulse.app"
+  hash_of() { codesign -dvvv "$1" 2>&1 | grep '^CDHash=' || true; }
+  if [ "$(hash_of "$DEST/Pulse Scanner.app")" != "$(hash_of "$SC_CACHE")" ]; then
+    rm -rf "$DEST/Pulse Scanner.app"
+    cp -R "$SC_CACHE" "$DEST/"
+    echo "✓ Installed $DEST/Pulse Scanner.app (new version: grant it Full Disk Access again)"
+  else
+    echo "✓ Pulse Scanner unchanged - its Full Disk Access is kept"
+  fi
 else
-  echo "✓ Built $APP"
+  echo "✓ Built $APP (scanner: $SC_CACHE)"
 fi

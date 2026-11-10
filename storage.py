@@ -248,8 +248,12 @@ class Scanner:
         self.system_finished = None
         # Inside Pulse.app the scanner is its own tiny app so macOS can grant it (only it)
         # Full Disk Access. When running from source, the bare binary is used.
-        app = os.path.join(here, "..", "Library", "Pulse Scanner.app")
-        self.scanner_app = os.path.realpath(app) if os.path.isdir(app) else None
+        # Pulse Scanner is its own app in /Applications (or ~/Applications), installed by
+        # build_app.sh and left untouched by Pulse updates so its Full Disk Access sticks.
+        candidates = ["/Applications/Pulse Scanner.app", os.path.join(HOME, "Applications", "Pulse Scanner.app"),
+                      os.path.join(here, "..", "Library", "Pulse Scanner.app")]
+        app = next((c for c in candidates if os.path.isdir(c)), None)
+        self.scanner_app = os.path.realpath(app) if app else None
         self.scanner_bin = os.path.join(here, "pulse-scanner")
         self.lock = threading.Lock()
         self.dirs, self.big_files, self.node_modules, self.denied_paths = {}, [], [], []
@@ -825,7 +829,7 @@ def run_action(name):
 
 def claude_report(scanner, disk):
     """Markdown report Claude can read to plan a cleanup."""
-    gb = lambda n: "%.2f GB" % (n / 2 ** 30)  # noqa: E731
+    gb = lambda n: "%.2f GB" % (n / 1e9)  # noqa: E731  (decimal, like Finder)
     lines = ["# Pulse storage report", "",
              "Generated %s. Startup disk: %s used of %s, %s free." %
              (time.strftime("%Y-%m-%d %H:%M"), gb(disk["used"]), gb(disk["total"]), gb(disk["free"])), "",
