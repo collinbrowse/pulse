@@ -19,6 +19,8 @@
 //   pulse-scanner --system --as-uid N --out DIR   (as root) -> DIR/system_scan.json
 //                                           progress  -> DIR/scan_progress.json
 //   pulse-scanner --out DIR --quick PATH    one folder -> DIR/quick_scan.json
+//   pulse-scanner --out DIR --root /Volumes/X --name NAME   another drive
+//                                           -> DIR/NAME_scan.json, progress DIR/NAME_progress.json
 //
 // Build: clang -O2 -o pulse-scanner scanner.c
 #include <errno.h>
@@ -63,6 +65,8 @@ static time_t started, last_progress;
 static const char *current = "";
 static int quick = 0;
 static int system_mode = 0;
+static const char *scan_name = NULL;  // --name: separate result files (scans of other drives)
+static char name_result[160], name_progress[160];
 static const char *skip_top = NULL;   // top-level folder to leave out (system mode: "Users")
 static long as_uid = -1;
 static gid_t as_gid = 0;
@@ -109,7 +113,8 @@ static void progress(const char *status) {
   snprintf(buf, sizeof buf, "{\"status\":\"%s\",\"files\":%lld,\"bytes\":%lld,\"denied\":%lld,"
            "\"current\":\"%s\",\"started\":%ld,\"pid\":%d}\n",
            status, total_files, total_bytes, denied, cur, (long)started, getpid());
-  write_atomic(quick ? "quick_progress.json" : system_mode ? "system_progress.json" : "scan_progress.json", buf);
+  write_atomic(quick ? "quick_progress.json" : system_mode ? "system_progress.json"
+               : scan_name ? name_progress : "scan_progress.json", buf);
 }
 
 static int ends_with(const char *s, const char *suf) {
@@ -233,6 +238,16 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--system")) { system_mode = 1; skip_top = "Users"; }
     else if (!strcmp(argv[i], "--skip-top") && i + 1 < argc) skip_top = argv[++i];
     else if (!strcmp(argv[i], "--as-uid") && i + 1 < argc) as_uid = atol(argv[++i]);
+    else if (!strcmp(argv[i], "--name") && i + 1 < argc) scan_name = argv[++i];
+  }
+  if (scan_name) {   // a plain file name: letters, digits, '-' and '_' only
+    size_t n = strlen(scan_name);
+    int ok = n > 0 && n <= 100 && !quick && !system_mode;
+    for (const char *c = scan_name; ok && *c; c++)
+      ok = (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '-' || *c == '_';
+    if (!ok) { fprintf(stderr, "pulse-scanner: bad --name\n"); return 2; }
+    snprintf(name_result, sizeof name_result, "%s_scan.json", scan_name);
+    snprintf(name_progress, sizeof name_progress, "%s_progress.json", scan_name);
   }
   if (!outdir) { fprintf(stderr, "usage: pulse-scanner --out DIR [--root PATH | --quick PATH]\n"); return 2; }
   if (system_mode && (getuid() != 0 || as_uid < 0 || quick)) {
@@ -256,14 +271,15 @@ int main(int argc, char **argv) {
   if (quick) {
     // Map a display path (/Users/x) to the data volume path for consistent keys.
     static char rp[PATH_MAX];
-    if (*display_prefix && strncmp(quick_path, "/System/", 8)) snprintf(rp, sizeof rp, "%s%s", display_prefix, quick_path);
+    if (*display_prefix && strncmp(quick_path, "/System/", 8) && strncmp(quick_path, "/Volumes/", 9)) snprintf(rp, sizeof rp, "%s%s", display_prefix, quick_path);
     else snprintf(rp, sizeof rp, "%s", quick_path);
     root_path = rp;
   }
   started = time(NULL);
 
   char tmpdirs[PATH_MAX];
-  const char *result_name = quick ? "quick_scan.json" : system_mode ? "system_scan.json" : "storage_scan.json";
+  const char *result_name = quick ? "quick_scan.json" : system_mode ? "system_scan.json"
+                          : scan_name ? name_result : "storage_scan.json";
   snprintf(tmpdirs, sizeof tmpdirs, "%s/.%s.tmp", outdir, result_name);
   dirs_out = fopen(tmpdirs, "w");
   if (!dirs_out) { perror("pulse-scanner: output"); return 1; }

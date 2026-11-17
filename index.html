@@ -221,6 +221,10 @@ tr.hl td { background: color-mix(in srgb, var(--warning) 12%, transparent); }
 .simsub .udid { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; opacity: .75; }
 .sg .items .more { border-top: 1px solid var(--grid); padding-top: 5px; }
 .sg .items .more button { border: 0; background: none; color: var(--s1); cursor: pointer; padding: 0; font: inherit; font-weight: 600; }
+.drives { flex-wrap: wrap; margin-bottom: 12px; }
+.drives small { color: var(--text-3); font-weight: 400; margin-left: 3px; }
+.drive-note { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); font-size: 13px; color: var(--text-2); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.drive-note span { flex: 1 1 260px; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; margin-bottom: 8px; font-size: 13px; }
 .crumbs button { border: 0; background: none; padding: 3px 6px; border-radius: 6px; cursor: pointer; color: var(--text-2); }
 .crumbs button:hover { background: var(--surface-2); color: var(--text); }
@@ -401,12 +405,14 @@ details.why p { margin: 6px 0 0; }
 
   <div id="view-storage" hidden>
     <div class="card">
-      <div class="head"><h2>Startup disk</h2><span class="meta" id="st-scan"></span>
+      <div class="seg drives" id="st-drives" hidden></div>
+      <div class="head"><h2 id="st-title">Startup disk</h2><span class="meta" id="st-scan"></span>
         <button class="ghost" id="st-rescan">Rescan</button></div>
       <div class="diskline"><div class="big num" id="st-free">–</div><div class="sub" id="st-used"></div></div>
       <div class="stackbar" id="st-bar"></div>
       <div class="legend" id="st-legend" style="margin-top:10px"></div>
       <div class="progress" id="st-progress" hidden><div></div></div>
+      <div class="drive-note" id="st-note" hidden></div>
       <div class="coverage" id="coverage" hidden>
         <div class="cov-head"><b id="cov-title"></b><span id="cov-sub"></span></div>
         <div class="step" id="step-fda">
@@ -1033,7 +1039,11 @@ try { const t = localStorage.getItem("pulse-theme"); if (t) document.documentEle
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => renderAll());
 
 // ------------------------------------------------------------------ storage view
-const ST = { expanded: new Set(), state: null, path: null, node: null, large: [], view: "perf", timer: null, busy: false };
+const ST = { expanded: new Set(), state: null, path: null, node: null, large: [], view: "perf", timer: null, busy: false, drive: null };
+// Other drives (external, network, disk images): ST.drive is the selected one's id, null = startup disk.
+const curDrive = () => (ST.drive && ST.state ? (ST.state.drives || []).find((d) => d.id === ST.drive) : null);
+const driveQ = () => (ST.drive ? "&drive=" + encodeURIComponent(ST.drive) : "");
+const scanStatus = () => (curDrive() || ST.state || {}).status;
 const FOLDER = '<svg class="ic" viewBox="0 0 20 20"><path d="M2 5.5A1.5 1.5 0 013.5 4h4l1.6 1.8h7.4A1.5 1.5 0 0118 7.3v7.2a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 012 14.5z" fill="currentColor" opacity=".55"/></svg>';
 const FILE = '<svg class="ic" viewBox="0 0 20 20"><path d="M5 2.5h6.5L15 6v11.5H5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M11.5 2.5V6H15" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const SAFETY = { safe: "Safe to delete", review: "Review first", careful: "Keep unless sure" };
@@ -1095,26 +1105,106 @@ function schedule() {
   clearTimeout(ST.timer);
   if (ST.view !== "storage") return;
   ST.timer = setTimeout(async () => {
-    const was = ST.state?.status;
+    const was = scanStatus();
     await loadState();
-    if (ST.state.status === "scanning" || was !== ST.state.status) { await openPath(ST.path, true); loadLarge(); }
+    if (scanStatus() === "scanning" || was !== scanStatus()) { await openPath(ST.path, true); loadLarge(); }
     schedule();
-  }, ST.state?.status === "scanning" ? 2000 : 20000);
+  }, scanStatus() === "scanning" ? 2000 : 20000);
 }
 async function loadState() {
   try { ST.state = await (await fetch("/api/storage/state")).json(); } catch { return; }
-  renderDisk(); renderSuggestions();
+  if (ST.drive && !curDrive()) {      // unplugged or ejected: back to the startup disk
+    toast(`“${ST.driveName || "The drive"}” was disconnected`);
+    ST.drive = null; ST.path = ST.state.home; ST.large = [];
+    openPath(ST.path); loadLarge();
+  }
+  renderDrives(); renderDisk(); renderSuggestions();
 }
-async function loadLarge() { try { ST.large = await (await fetch("/api/storage/large")).json(); renderLarge(); } catch {} }
+async function loadLarge() {
+  const want = ST.drive;
+  try { const l = await (await fetch("/api/storage/large?" + driveQ().slice(1))).json(); if (want === ST.drive) { ST.large = l; renderLarge(); } } catch {}
+}
 async function openPath(path, quiet) {
   if (!quiet) $("ex-list").innerHTML = `<div class="empty">Loading…</div>`;
-  const r = await fetch("/api/storage/node?path=" + encodeURIComponent(path));
-  if (!r.ok) { if (!quiet) $("ex-list").innerHTML = `<div class="empty">${ST.state?.status === "scanning" ? "Still scanning this folder…" : "Couldn't read this folder."}</div>`; ST.path = path; renderCrumbs(); return; }
+  const want = ST.drive;
+  const r = await fetch("/api/storage/node?path=" + encodeURIComponent(path) + driveQ());
+  if (want !== ST.drive) return;      // switched drives while this was loading
+  if (!r.ok) {
+    const dr = curDrive();
+    const why = scanStatus() === "scanning" ? "Still scanning this folder…"
+      : dr && dr.blocked ? "macOS blocked Pulse Scanner from this drive."
+      : dr && dr.status === "idle" ? "This drive hasn't been scanned yet — click Scan drive." : "Couldn't read this folder.";
+    if (!quiet || dr) $("ex-list").innerHTML = `<div class="empty">${why}</div>`;
+    ST.path = path; renderCrumbs(); return;
+  }
   ST.node = await r.json(); ST.path = ST.node.path; renderCrumbs(); renderExplorer();
+}
+
+function renderDrives() {
+  const ds = ST.state.drives || [];
+  $("st-drives").hidden = !ds.length;
+  $("st-drives").innerHTML = ds.length ? [`<button data-drive="" class="${ST.drive ? "" : "on"}" title="Your Mac's internal startup disk">Macintosh HD</button>`]
+    .concat(ds.map((d) => `<button data-drive="${esc(d.id)}" class="${ST.drive === d.id ? "on" : ""}" title="${esc(d.mount)} · ${esc(d.kind)} · ${esc(d.fs)}">${esc(d.name)}<small>${fmtBytes(d.free)} free</small></button>`)).join("") : "";
+}
+async function selectDrive(id) {
+  if ((ST.drive || "") === id) return;
+  ST.drive = id || null; ST.node = null; ST.large = []; ST.driveRoot = null;
+  const dr = curDrive(); ST.driveName = dr?.name;
+  ST.path = dr ? dr.mount : ST.state.home;
+  renderDrives(); renderDisk(); renderSuggestions(); renderLarge(); renderCrumbs();
+  // Scanning is read-only and quick on local drives; network drives wait for a click.
+  if (dr && dr.status === "idle" && !dr.network) { await post("/api/storage/scan", { drive: dr.id }); await loadState(); }
+  await openPath(ST.path); loadLarge(); schedule();
+}
+function drawBar(parts) {
+  const bg = (c) => (c === "hatch" ? "var(--hatch)" : c === "purge" ? "var(--purge)" : `var(${c})`);
+  $("st-bar").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
+    `<div style="flex:${v};background:${bg(c)}" title="${esc(l)}: ${fmtBytes(v)}"></div>`).join("");
+  $("st-legend").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
+    `<span><i style="background:${bg(c)};${c === "--surface-2" || c === "hatch" || c === "purge" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
+}
+function renderDrive(dr) {
+  $("st-free").innerHTML = `${fmtBytes(dr.free)} <span style="font-size:15px;font-weight:500;color:var(--text-2)">available</span>`;
+  $("st-used").textContent = `${fmtBytes(dr.used)} used of ${fmtBytes(dr.total)} · ${dr.kind} · ${dr.fs}${dr.readonly ? " · read-only" : ""}`;
+  const scanning = dr.status === "scanning";
+  $("st-progress").hidden = !scanning; $("coverage").hidden = true;
+  $("st-scan").textContent = scanning ? `Scanning… ${dr.files.toLocaleString()} files · ${fmtBytes(dr.bytes)} · ${dr.current || ""}`.slice(0, 140)
+    : dr.finished && !dr.blocked ? `Scanned ${ago(dr.finished)} · ${dr.files.toLocaleString()} files${dr.denied ? ` · ${dr.denied} folders blocked by macOS` : ""}` : "";
+  $("st-rescan").disabled = scanning;
+  $("st-rescan").textContent = scanning ? "Scanning…" : dr.finished ? "Rescan" : "Scan drive";
+  const note = $("st-note");
+  if (dr.blocked && !scanning) {
+    note.hidden = false;
+    note.innerHTML = `<span>🔒 macOS didn't let Pulse Scanner open “${esc(dr.name)}”. Give Pulse Scanner Full Disk Access (or allow it under Privacy &amp; Security › Files and Folders), then click Rescan.</span><button class="btn" data-fda>Set up…</button>`;
+  } else if (dr.status === "idle") {
+    note.hidden = false;
+    note.innerHTML = `<span>Pulse hasn't scanned this drive yet. Scanning only reads folder sizes${dr.network ? "; on a network drive it can take a while" : ""}.</span>`;
+  } else note.hidden = true;
+  // composition: the drive's biggest top-level items
+  const root = ST.driveRoot?.id === dr.id ? ST.driveRoot.node : null;
+  const parts = [];
+  if (root) {
+    const top = root.children.filter((c) => c.size > 0).slice(0, 5);
+    top.forEach((c, i) => parts.push([c.name, "--s" + (i + 1), c.size]));
+    parts.push(["Everything else", "--text-3", Math.max(0, root.size - top.reduce((a, c) => a + c.size, 0))]);
+    const unseen = dr.used - root.size;
+    if (unseen > dr.used * 0.01) parts.push(["Not seen by Pulse (filesystem and blocked folders)", "hatch", unseen]);
+  } else parts.push(["Used", "--s1", dr.used]);
+  parts.push(["Free", "--surface-2", dr.free]);
+  drawBar(parts);
+  if (dr.scanned_total != null && (!ST.driveRoot || ST.driveRoot.id !== dr.id || ST.driveRoot.at < dr.finished * 1000)) {
+    ST.driveRoot = { id: dr.id, at: Date.now(), node: root };
+    fetch("/api/storage/node?path=" + encodeURIComponent(dr.mount) + "&drive=" + encodeURIComponent(dr.id))
+      .then((r) => (r.ok ? r.json() : null)).then((n) => { if (n && ST.driveRoot?.id === dr.id) { ST.driveRoot.node = n; renderDisk(); } }).catch(() => {});
+  }
 }
 
 function renderDisk() {
   const st = ST.state, d = st.disk;
+  const dr = curDrive();
+  $("st-title").textContent = dr ? dr.name : "Startup disk";
+  if (dr) return renderDrive(dr);
+  $("st-note").hidden = true;
   // Same numbers as System Settings › General › Storage (decimal GB, "Available" incl. purgeable)
   const avail = d.available ?? d.free;
   $("st-free").innerHTML = `${fmtBytes(avail)} <span style="font-size:15px;font-weight:500;color:var(--text-2)">available</span>`;
@@ -1173,11 +1263,7 @@ function renderDisk() {
     if (vol) for (const [label, bytes] of vol.others) parts.push([label, "--text-3", bytes]);
   } else parts.push(["Used", "--s1", d.used]);
   parts.push(["Free now", "--surface-2", d.free]);
-  const bg = (c) => (c === "hatch" ? "var(--hatch)" : c === "purge" ? "var(--purge)" : `var(${c})`);
-  $("st-bar").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
-    `<div style="flex:${v};background:${bg(c)}" title="${esc(l)}: ${fmtBytes(v)}"></div>`).join("");
-  $("st-legend").innerHTML = parts.filter((p) => p[2] > 0).map(([l, c, v]) =>
-    `<span><i style="background:${bg(c)};${c === "--surface-2" || c === "hatch" || c === "purge" ? "outline:1px solid var(--border)" : ""}"></i>${esc(l)} <b class="num">${fmtBytes(v)}</b></span>`).join("");
+  drawBar(parts);
   // fetch root + home totals occasionally for the bar
   if (!ST.rootNode || Date.now() - (ST.rootAt || 0) > (scanning ? 4000 : 60000)) {
     ST.rootAt = Date.now();
@@ -1189,6 +1275,13 @@ function renderDisk() {
 }
 
 function renderCrumbs() {
+  const dr = curDrive();
+  if (dr) {
+    const rest = ST.path.startsWith(dr.mount) ? ST.path.slice(dr.mount.length).split("/").filter(Boolean) : [];
+    let acc = dr.mount; const html = [`<button data-go="${esc(dr.mount)}">${esc(dr.name)}</button>`];
+    for (const p of rest) { acc += "/" + p; html.push(`<span>›</span><button data-go="${esc(acc)}">${esc(p)}</button>`); }
+    $("ex-crumbs").innerHTML = html.join(""); return;
+  }
   const parts = ST.path.split("/").filter(Boolean);
   let acc = ""; const html = [`<button data-go="/">Macintosh HD</button>`];
   for (const p of parts) { acc += "/" + p; html.push(`<span>›</span><button data-go="${esc(acc)}">${esc(p)}</button>`); }
@@ -1224,6 +1317,12 @@ function renderExplorer() {
 }
 
 function renderSuggestions() {
+  const dr = curDrive();
+  if (dr) {
+    $("sg-meta").textContent = ""; $("sg-safe").disabled = true; $("sg-safe").textContent = "Clean all safe items"; $("sg-claude").disabled = true;
+    $("sg-list").innerHTML = `<div class="empty">Cleanup suggestions cover your startup disk. On “${esc(dr.name)}”, use Explore and Largest files to see what takes up space, and Finder to remove things.</div>`;
+    return;
+  }
   const sg = ST.state.suggestions || [];
   const safe = sg.filter((s) => s.safety === "safe" && s.how !== "info");
   const safeTotal = safe.reduce((a, s) => a + (s.frees != null ? Math.min(s.size, s.frees) : s.size), 0);
@@ -1253,7 +1352,7 @@ function renderLarge() {
       <td class="r num">${fmtBytes(f.size)}${freesNote(f.size, f.frees) ? `<span class="simsub" title="${FREES_TIP}">${freesNote(f.size, f.frees)}</span>` : ""}</td><td>${ago(f.mtime)}</td>
       <td class="r" style="white-space:nowrap"><button class="rowbtn" data-reveal="${esc(f.path)}">Finder</button>
       ${f.deletable ? `<button class="rowbtn" data-del="${esc(f.path)}" data-size="${f.size}" style="color:var(--critical-ink)">Delete…</button>` : ""}</td></tr>`).join("") + `</tbody></table>`
-    : `<div class="empty">${ST.state?.status === "scanning" ? "Still looking…" : "No files over 250 MB."}</div>`;
+    : `<div class="empty">${scanStatus() === "scanning" ? "Still looking…" : curDrive() && !curDrive().finished ? "Scan the drive to list its largest files." : "No files over 250 MB."}</div>`;
 }
 
 async function doDelete(path, mode) {
@@ -1304,7 +1403,10 @@ $("deep-run").onclick = async () => {
   catch (x) { toast(x.message === "Cancelled" ? "Cancelled" : "Couldn't measure: " + x.message); }
   ST.deepBusy = false; renderDisk();
 };
-$("st-rescan").onclick = async () => { await post("/api/storage/scan"); ST.rootNode = null; await loadState(); schedule(); };
+$("st-rescan").onclick = async () => {
+  await post("/api/storage/scan", ST.drive ? { drive: ST.drive } : {}); if (!ST.drive) ST.rootNode = null;
+  await loadState(); schedule();
+};
 
 document.addEventListener("click", async (e) => {
   const rv = e.target.closest("[data-reveal]");
@@ -1320,7 +1422,9 @@ document.addEventListener("click", async (e) => {
   const rt = e.target.closest("[data-rt]");
   if (rt) { e.stopPropagation(); modal(`Delete ${rt.dataset.name}?`, "Simulators using this iOS version stop working until you re-download it in Xcode > Settings > Components.", [
     ["Delete", async () => { toast("Deleting runtime…"); const r = await post("/api/storage/action", { name: "sim_runtime:" + rt.dataset.rt }); toast(`Freed ${fmtBytes(r.freed)}`); await refreshStorage(); }, true]]); return; }
-  if (e.target.closest("#fda-open")) { post("/api/open-fda"); return; }
+  if (e.target.closest("#fda-open, [data-fda]")) { post("/api/open-fda"); return; }
+  const dv = e.target.closest("[data-drive]");
+  if (dv) { selectDrive(dv.dataset.drive); return; }
   if (e.target.closest("#fda-check")) { checkAccess(true); return; }
   const sg = e.target.closest("[data-sg]");
   if (sg) { askSuggestion(ST.state.suggestions[+sg.dataset.sg]); return; }

@@ -1044,12 +1044,17 @@ class Handler(BaseHTTPRequestHandler):
             st["suggestions"] = SCANNER.suggestions()
             st["claude"] = any(os.access(c, os.X_OK) for c in CLAUDE_CANDIDATES)
             return self._send(200, st)
-        if u.path == "/api/storage/node":
-            path = parse_qs(u.query).get("path", ["/"])[0]
-            node = SCANNER.node(path)
+        if u.path in ("/api/storage/node", "/api/storage/large"):
+            q = parse_qs(u.query)
+            drive = None
+            if q.get("drive"):
+                drive = storage.find_drive(q["drive"][0])
+                if not drive:
+                    return self._send(404, {"error": "That drive isn't connected"})
+            if u.path == "/api/storage/large":
+                return self._send(200, SCANNER.large_files(drive))
+            node = SCANNER.node(q.get("path", ["/"])[0], drive)
             return self._send(200 if node else 404, node or {"error": "Not scanned yet"})
-        if u.path == "/api/storage/large":
-            return self._send(200, SCANNER.large_files())
         if u.path == "/api/notifications":
             items = []
             while MON.notify_queue:
@@ -1105,6 +1110,11 @@ class Handler(BaseHTTPRequestHandler):
             MON._event("info", "action", "You quit %s (pid %d)%s" % (proc["app"], pid, " [forced]" if data.get("force") else ""))
             return self._send(200, {"ok": True})
         if u.path == "/api/storage/scan":
+            if data.get("drive"):
+                drive = storage.find_drive(str(data["drive"]))
+                if not drive:
+                    return self._send(404, {"error": "That drive isn't connected"})
+                return self._send(200, {"ok": True, "started": SCANNER.start_drive(drive)})
             return self._send(200, {"ok": True, "started": SCANNER.start()})
         if u.path == "/api/storage/delete":
             mode = data.get("mode") if data.get("mode") in ("trash", "permanent", "contents") else "trash"

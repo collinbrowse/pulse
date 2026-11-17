@@ -10,6 +10,7 @@ A lightweight performance, storage and fan monitor for Apple Silicon Macs. It us
   - Serious flags also arrive as macOS notifications.
 - **Storage:**
   - A step-by-step folder explorer and a list of the largest files.
+  - External, network and disk-image drives too: pick one above the disk bar to see its space, explore it and list its largest files (read-only; Pulse only deletes inside your home folder).
   - Cleanup suggestions rated *safe* / *review* / *careful*, covering Xcode build data and device support, simulators and their iOS versions, package caches, inactive `node_modules`, old installers, Android emulators and more.
   - Deleting moves files to the Trash or removes them permanently, after you confirm.
   - An "Ask Claude" button hands a storage report to [Claude Code](https://claude.com/claude-code) to plan a cleanup with you.

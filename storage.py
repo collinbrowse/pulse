@@ -2,6 +2,7 @@
 import calendar
 import glob
 import plistlib
+import hashlib
 import heapq
 import json
 import re
@@ -30,7 +31,7 @@ def display(path):
 def real(path):
     if DATA_ROOT != "/" and path == "/":
         return DATA_ROOT
-    if DATA_ROOT != "/" and path.startswith("/") and not path.startswith("/System/"):
+    if DATA_ROOT != "/" and path.startswith("/") and not path.startswith(("/System/", "/Volumes/")):
         return DATA_ROOT + path          # /Users, /Applications, /Library, /private ... live on the data volume
     return path
 
@@ -195,6 +196,88 @@ def volumes():
     return res
 
 
+# ------------------------------------------------------------------ other drives
+_mount_cache = {"t": 0, "v": {}}
+_info_cache = {}
+
+
+def _mounts():
+    """mount point -> {'fs': type, 'flags': [...]}, from `mount` (cached for a few seconds)."""
+    if time.time() - _mount_cache["t"] < 3:
+        return _mount_cache["v"]
+    res = {}
+    _, out = run(["/sbin/mount"], timeout=10)
+    for line in out.splitlines():
+        m = re.match(r"^(.+?) on (/.*) \((.*)\)$", line)
+        if m:
+            opts = [o.strip() for o in m.group(3).split(",")]
+            res[m.group(2)] = {"fs": opts[0], "flags": opts[1:]}
+    _mount_cache.update(t=time.time(), v=res)
+    return res
+
+
+def _disk_info(mount):
+    c = _info_cache.get(mount)
+    if c and time.time() - c[0] < 300:
+        return c[1]
+    try:
+        out = subprocess.run(["diskutil", "info", "-plist", mount], capture_output=True, timeout=10).stdout
+        info = plistlib.loads(out) if out else {}
+    except Exception:
+        info = {}
+    _info_cache[mount] = (time.time(), info)
+    return info
+
+
+FS_NAMES = {"apfs": "APFS", "hfs": "Mac OS Extended", "exfat": "ExFAT", "msdos": "FAT", "ntfs": "NTFS",
+            "smbfs": "SMB", "afpfs": "AFP", "nfs": "NFS", "webdav": "WebDAV"}
+
+
+def drive_id(mount):
+    """Short, file-name-safe id for a mount point (its scan results are stored under it)."""
+    base = re.sub(r"[^a-z0-9]+", "-", os.path.basename(mount).lower()).strip("-")[:32] or "drive"
+    return "%s-%s" % (base, hashlib.sha1(mount.encode("utf-8", "surrogateescape")).hexdigest()[:8])
+
+
+def other_drives():
+    """Drives mounted in /Volumes besides the startup disk (external, network, disk images...)."""
+    mounts = _mounts()
+    out = []
+    try:
+        names = sorted(os.listdir("/Volumes"), key=str.lower)
+    except OSError:
+        return out
+    for n in names:
+        if n.startswith((".", "com.apple.")):
+            continue
+        mp = "/Volumes/" + n
+        mi = mounts.get(mp)
+        if not mi or "nobrowse" in mi["flags"]:       # hidden from Finder too
+            continue
+        try:
+            st = os.statvfs(mp)
+        except OSError:
+            continue
+        local = "local" in mi["flags"]
+        info = _disk_info(mp) if local else {}
+        proto = info.get("BusProtocol") or info.get("DeviceProtocol") or ""
+        kind = ("Network drive" if not local else "Disk image" if proto == "Disk Image" else
+                "Internal volume" if info.get("Internal") else
+                ("%s drive" % proto) if proto in ("USB", "Thunderbolt", "SATA", "FireWire", "SD", "Secure Digital") else
+                "External drive")
+        total, free = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+        out.append({"id": drive_id(mp), "name": info.get("VolumeName") or n, "mount": mp, "kind": kind,
+                    "fs": info.get("FilesystemUserVisibleName") or FS_NAMES.get(mi["fs"], mi["fs"]),
+                    "network": not local, "readonly": "read-only" in mi["flags"],
+                    "ejectable": bool(info.get("Ejectable")) or not local,
+                    "total": total, "free": free, "used": max(0, total - free)})
+    return out
+
+
+def find_drive(drive):
+    return next((d for d in other_drives() if d["id"] == drive), None) if drive else None
+
+
 # Mirrors scanner.c: inside these the scanner records totals only, never names.
 PRIVATE_DIRS = ["Library/Mail", "Library/Messages", "Library/Safari", "Library/Cookies", "Library/Keychains",
                 "Library/Mobile Documents", "Library/CloudStorage", "Library/Group Containers", "Library/Containers",
@@ -259,6 +342,7 @@ class Scanner:
         self.dirs, self.big_files, self.node_modules, self.denied_paths = {}, [], [], []
         self.loaded_mtime = 0
         self.full_access = None        # does Pulse Scanner currently have Full Disk Access?
+        self.drives = {}               # drive id -> loaded scan of another drive
         self.finished = self.started = None
         self.files = self.denied = 0
         self._load()
@@ -368,9 +452,9 @@ class Scanner:
         except Exception:
             pass
 
-    def _progress(self):
+    def _progress(self, file=None):
         try:
-            with open(self.progress_file) as f:
+            with open(file or self.progress_file) as f:
                 p = json.load(f)
         except Exception:
             return None
@@ -431,7 +515,7 @@ class Scanner:
             self.full_access = None
         return self.full_access
 
-    def quick_scan(self, path):
+    def quick_scan(self, path, into=None):
         """Ask the scanner for one small folder that the full scan didn't keep in detail."""
         out = os.path.join(self.data_dir, "quick_scan.json")
         try:
@@ -444,9 +528,10 @@ class Scanner:
                 d = json.load(f)
         except Exception:
             return None
+        target = self.dirs if into is None else into
         with self.lock:
-            self.dirs.update(d.get("dirs", {}))
-        return self.dirs.get(real(path))
+            target.update(d.get("dirs", {}))
+        return target.get(real(path))
 
     def size_of(self, path):
         rp = real(path)
@@ -474,11 +559,22 @@ class Scanner:
         return None
 
     # ---- views
-    def node(self, path):
+    def node(self, path, drive=None):
+        if drive:
+            path = os.path.normpath(path)
+            if not (path == drive["mount"] or path.startswith(drive["mount"] + "/")):
+                return None
+            scan = self._drive(drive) or {"dirs": {}, "denied_paths": []}
+            dirs, denied = scan["dirs"], scan["denied_paths"]
+            # Never measure a whole drive here: only small folders the full drive scan skipped.
+            scanning = ("mtime" not in scan or path == drive["mount"]
+                        or self.drive_status(drive)["status"] == "scanning")
+        else:
+            dirs, denied, scanning = self.dirs, self.denied_paths, self.status == "scanning"
         rp = real(path)
-        n = self.dirs.get(rp)
-        if n is None and self.status != "scanning":
-            n = self.quick_scan(path)
+        n = dirs.get(rp)
+        if n is None and not scanning:
+            n = self.quick_scan(path, into=dirs)
         if n is None:
             return None
         kids = []
@@ -503,10 +599,60 @@ class Scanner:
             kids.append(kid)
         private = is_private(rp)
         inside = display(rp) + "/"
-        blocked_inside = sum(1 for d in self.denied_paths if d.startswith(inside))
+        blocked_inside = sum(1 for d in denied if d.startswith(inside))
         return {"path": display(rp), "size": n["size"], "priv": n.get("priv"), "files": n["files"], "children": kids,
                 "private": private, "blocked_inside": blocked_inside,
                 "other": n["other"], "other_count": n["other_count"], "done": n["done"]}
+
+    # ---- other drives
+    def _drive_files(self, drive):
+        base = os.path.join(self.data_dir, "drive-" + drive["id"])
+        return base + "_scan.json", base + "_progress.json"
+
+    def _drive(self, drive):
+        """Scan results for another drive (reloaded when the scanner writes a new file)."""
+        res, _ = self._drive_files(drive)
+        try:
+            mt = os.path.getmtime(res)
+        except OSError:
+            return None
+        c = self.drives.get(drive["id"])
+        if c and c["mtime"] == mt:
+            return c
+        try:
+            with open(res) as f:
+                d = json.load(f)
+        except Exception:
+            return c
+        c = {"mtime": mt, "dirs": d["dirs"], "big_files": [tuple(x) for x in d.get("big_files", [])],
+             "denied_paths": d.get("denied_paths", []), "finished": d.get("finished"),
+             "files": d.get("files", 0), "denied": d.get("denied", 0)}
+        with self.lock:
+            self.drives[drive["id"]] = c
+        return c
+
+    def drive_status(self, drive):
+        p = self._progress(self._drive_files(drive)[1]) or {}
+        scan = self._drive(drive)
+        scanning = p.get("status") == "scanning"
+        root = scan["dirs"].get(drive["mount"]) if scan else None
+        return {"status": "scanning" if scanning else ("done" if scan and scan["finished"] else "idle"),
+                "files": p.get("files", 0) if scanning else (scan["files"] if scan else 0),
+                "bytes": p.get("bytes", 0), "current": p.get("current", ""),
+                "finished": scan["finished"] if scan else None, "denied": scan["denied"] if scan else 0,
+                "scanned_total": root["size"] if root else None,
+                # the scanner couldn't open the drive at all (macOS privacy protection)
+                "blocked": bool(scan and not root and drive["mount"] in scan["denied_paths"])}
+
+    def start_drive(self, drive):
+        if self.drive_status(drive)["status"] == "scanning":
+            return False
+        try:
+            os.remove(self._drive_files(drive)[1])
+        except OSError:
+            pass
+        self._launch(["--out", self.data_dir, "--root", drive["mount"], "--name", "drive-" + drive["id"]], wait=False)
+        return True
 
     def suggestions(self):
         self._load()
@@ -574,13 +720,16 @@ class Scanner:
                 "root": "/", "home": HOME, "scanned_total": root["size"] if root else None,
                 "hidden_locations": hidden, "blocked": blocked[:40], "scanner_app": self.scanner_app,
                 "full_access": self.full_access, "volumes": volumes(),
+                "drives": [dict(d, **self.drive_status(d)) for d in other_drives()],
                 "system_scan": {"finished": self.system_finished,
                                 "running": (self.system_progress() or {}).get("status") == "scanning"},
                 "denied_sample": self.denied_paths[:60]}
 
-    def large_files(self):
+    def large_files(self, drive=None):
+        scan = self._drive(drive) if drive else None
+        big = (scan["big_files"] if scan else []) if drive else self.big_files
         return [{"path": b[1], "size": b[0], "mtime": b[2], "frees": b[3] if len(b) > 3 else None,
-                 "deletable": check_deletable(b[1])[0]} for b in sorted(self.big_files, reverse=True)]
+                 "deletable": False if drive else check_deletable(b[1])[0]} for b in sorted(big, reverse=True)]
 
     def forget(self, path, freed):
         """Update cached sizes after a deletion so the UI reflects it without a rescan."""
