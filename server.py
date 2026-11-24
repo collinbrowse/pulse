@@ -535,7 +535,9 @@ class Monitor:
         gpu = probe.get("gpu") if probe else None
         dt = (now - self.prev_t) if self.prev_t else None
 
-        s = {"t": round(now, 2), "load": round(os.getloadavg()[0], 2), "gpu": gpu}
+        la = os.getloadavg()
+        s = {"t": round(now, 2), "load": round(la[0], 2), "load5": round(la[1], 2),
+             "load15": round(la[2], 2), "gpu": gpu}
 
         # CPU
         if probe and probe.get("cpu"):
@@ -720,6 +722,13 @@ class Monitor:
                        "Run queue is extremely long",
                        "Load average %.0f on %d cores - far more work is waiting than the CPU can run, "
                        "so everything feels slow." % (load, NCPU))
+        # The 15-minute average only climbs past the core count when work has been queuing
+        # for a long while, unlike the 1-minute value, which jumps on every short burst.
+        load15 = s.get("load15", 0)
+        self._set_flag(load15 > NCPU * 1.5 and load <= NCPU * 4, "load:sustained", "warning", "CPU",
+                       "More work than cores for the last 15 minutes",
+                       "15-minute load average %.1f on %d cores (%.1f×). Tasks keep waiting for a "
+                       "free core. Check the top processes below." % (load15, NCPU, load15 / NCPU))
 
         # --- memory
         m = s.get("mem")

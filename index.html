@@ -736,7 +736,10 @@ function renderCharts() {
   const peak = (key) => { const v = data.map((d) => get(d, key)).filter((x) => x != null); return v.length ? Math.max(...v) : null; };
   if (l.cpu) {
     legend("lg-cpu", [["User", "--s1", l.cpu.user.toFixed(0) + "%"], ["System", "--s2", l.cpu.sys.toFixed(0) + "%"]]);
-    $("cpu-meta").textContent = `avg ${avg("cpu.total")?.toFixed(0)}% · peak ${peak("cpu.total")?.toFixed(0)}% · load ${l.load}`;
+    const ld = loadInfo(l);
+    $("cpu-meta").innerHTML = `avg ${avg("cpu.total")?.toFixed(0)}% · peak ${peak("cpu.total")?.toFixed(0)}% · ` +
+      `<span title="Load average over 1, 5 and 15 minutes: how many tasks were running or waiting for a core, on average. Above the core count (${S.meta?.ncpu}) means tasks are queuing.">` +
+      `load ${ld.trio} <span style="color:${ld.color}">(${ld.ratio}× cores)</span></span>`;
     renderCores(l.cpu.cores);
   }
   if (l.mem) {
@@ -826,13 +829,24 @@ function tileFlag(cats) {
   return `<span class="flagdot" style="color:var(${s.ci})" title="${esc(worst.title)}">${s.icon}</span>`;
 }
 
+// Load average relative to the core count: under 1× every task gets a core, above it tasks queue.
+function loadInfo(l) {
+  const n = S.meta?.ncpu || 1, r = (l.load || 0) / n;
+  const f = (v) => (v == null ? "–" : v.toFixed(1));
+  return {
+    trio: `${f(l.load)} · ${f(l.load5)} · ${f(l.load15)}`,
+    ratio: r.toFixed(1),
+    color: r > 2 ? "var(--critical-ink)" : r > 1 ? "var(--warning-ink)" : "",
+  };
+}
+
 function renderTiles() {
   const l = S.samples[S.samples.length - 1]; if (!l) return;
   const live = S.live || {}; const tail = S.samples.slice(-90);
   const b = live.battery || {}, du = live.disk_usage || {};
   const tiles = [
     { k: "cpu", lbl: "CPU", cats: ["CPU"], val: l.cpu ? `${l.cpu.total.toFixed(0)}<small>%</small>` : "–",
-      sub: `${S.meta?.ncpu} cores · load ${l.load.toFixed(0)}`, spark: tail.map((d) => get(d, "cpu.total")), max: 100 },
+      sub: `${S.meta?.ncpu} cores · load ${loadInfo(l).ratio}×`, subColor: loadInfo(l).color, spark: tail.map((d) => get(d, "cpu.total")), max: 100 },
     { k: "mem", lbl: "Memory", cats: ["Memory"], val: l.mem ? `${(l.mem.used / 2 ** 30).toFixed(1)}<small>/ ${Math.round(l.mem.total / 2 ** 30)} GB</small>` : "–",
       sub: l.mem ? `swap ${fmtMem(l.mem.swap)}` : "", spark: tail.map((d) => get(d, "mem.used")), max: l.mem?.total },
     { k: "temp", lbl: "Chip temp", cats: ["Temperature"], val: l.temp?.cpu_max != null ? `${l.temp.cpu_max.toFixed(0)}<small>°C</small>` : "–",
@@ -855,6 +869,7 @@ function renderTiles() {
     n.querySelector(".lbl").innerHTML = esc(t.lbl) + tileFlag(t.cats);
     n.querySelector(".val").innerHTML = t.val;
     n.querySelector(".sub").textContent = t.sub;
+    n.querySelector(".sub").style.color = t.subColor || "";
     sparkline(n.querySelector("canvas"), t.spark, s1, t.max);
   });
 }
