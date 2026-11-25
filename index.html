@@ -119,6 +119,17 @@ body.resizing iframe, body.resizing canvas { pointer-events: none; }
 /* flags */
 .side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 16px; max-height: calc(100vh - 32px); }
 .flags { display: flex; flex-direction: column; min-height: 0; }
+.jobbar { display: flex; gap: 3px; margin-bottom: 10px; }
+.jobbar i { flex: 1; height: 6px; border-radius: 3px; background: var(--border); }
+.jobbar i.on { background: var(--s1); }
+.joblist { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow: auto; }
+.job { border: 1px solid var(--border); border-left: 3px solid var(--s1); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
+.job.waiting { border-left-color: var(--warning); }
+.job .jt { display: flex; gap: 8px; align-items: baseline; }
+.job .jt b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.job .jt span { margin-left: auto; color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
+.job .jp { color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
+.job .jk { color: var(--text-3); font-size: 11.5px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flaglist { overflow: auto; display: flex; flex-direction: column; gap: 8px; margin: 0 -4px; padding: 0 4px; }
 .flag { border: 1px solid var(--border); border-left: 3px solid var(--c); border-radius: 8px; padding: 9px 11px; background: var(--surface); }
 .flag .top { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -383,6 +394,11 @@ details.why p { margin: 6px 0 0; }
 
     <div class="splitter" data-split="side" title="Drag to resize · double-click to reset"></div>
     <aside class="side">
+      <div class="card" id="jobs-card" hidden>
+        <div class="head"><h2>Job queue</h2><span class="meta" id="jobs-meta"></span></div>
+        <div class="jobbar" id="jobbar"></div>
+        <div class="joblist" id="joblist"></div>
+      </div>
       <div class="card flags">
         <div class="head"><h2>Flags</h2><span class="meta" id="flag-meta"></span></div>
         <div class="flaglist" id="flaglist"><div class="empty">Collecting a baseline…</div></div>
@@ -1481,7 +1497,31 @@ document.addEventListener("dblclick", (e) => {
   applySplit(sp.dataset.split, 0); try { localStorage.removeItem("pulse-split-" + sp.dataset.split); } catch {}
 });
 
-function renderAll() { renderHeader(); renderTiles(); renderCharts(); renderFans(); renderFlags(); renderTable(); }
+// Builds and test runs from every project, as queued by ~/.claude/bin/slot.
+function renderJobs() {
+  const q = S.live?.jobs, card = $("jobs-card");
+  card.hidden = !q;
+  if (!q) return;
+  const now = Date.now() / 1000;
+  const run = q.jobs.filter((j) => j.state === "running"), wait = q.jobs.filter((j) => j.state === "waiting");
+  $("jobs-meta").textContent = `${Math.min(q.used, q.capacity)} of ${q.capacity} cores in use` +
+    (wait.length ? ` · ${wait.length} waiting` : "") + (q.capacity < q.base ? " · emulator running" : "");
+  $("jobbar").innerHTML = Array.from({ length: q.capacity }, (_, i) => `<i class="${i < q.used ? "on" : ""}"></i>`).join("");
+  if (!q.jobs.length) { $("joblist").innerHTML = `<div class="empty">No builds or test runs right now.</div>`; return; }
+  $("joblist").innerHTML = [...run, ...wait].map((j, i) => {
+    const where = j.worktree ? `${j.project} / ${j.worktree}` : j.project;
+    const task = j.label || j.kind;
+    const when = j.state === "running"
+      ? `${fmtDur(now - j.started_at)} · ${j.credits} core${j.credits === 1 ? "" : "s"}${j.cpu != null ? ` · ${j.cpu}% CPU` : ""}`
+      : `waiting ${fmtDur(now - j.queued_at)} · #${i - run.length + 1} in line`;
+    return `<div class="job ${j.state}" title="${esc(j.cmd)}\n${esc(j.cwd)}">
+      <div class="jt"><b>${esc(task)}</b><span>${when}</span></div>
+      <div class="jp">${esc(where)}</div>
+      ${j.label && j.kind ? `<div class="jk">${esc(j.kind)}</div>` : ""}</div>`;
+  }).join("");
+}
+
+function renderAll() { renderHeader(); renderTiles(); renderCharts(); renderFans(); renderJobs(); renderFlags(); renderTable(); }
 let lastT = 0, busy = false;
 async function poll(force, bg) {
   if (busy && !force) return; busy = true;
@@ -1492,7 +1532,7 @@ async function poll(force, bg) {
     const cutoff = lastT - 3600; while (S.samples.length && S.samples[0].t < cutoff) S.samples.shift();
     // don't rebuild the table while the user is selecting text in it
     const sel = window.getSelection(); const selecting = sel && !sel.isCollapsed && $("tablewrap").contains(sel.anchorNode);
-    renderHeader(); if (ST.view === "perf") { renderTiles(); renderCharts(); renderFans(); renderFlags(); if (!selecting) renderTable(); }
+    renderHeader(); if (ST.view === "perf") { renderTiles(); renderCharts(); renderFans(); renderJobs(); renderFlags(); if (!selecting) renderTable(); }
   } catch (e) {
     $("health").innerHTML = `<span style="color:var(--critical-ink);display:inline-flex">${SEV.critical.icon}</span>Monitor offline`;
   } finally { busy = false; }

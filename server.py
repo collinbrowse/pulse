@@ -39,6 +39,11 @@ NCPU = os.cpu_count() or 1
 
 SEVERITY_RANK = {"info": 0, "warning": 1, "serious": 2, "critical": 3}
 
+# The machine-wide job queue (~/.claude/bin/slot): builds and test runs from every project wait
+# here for CPU credits. Pulse only reads it.
+SLOT_STATE = os.path.join(HOME, ".claude", "slot", "state.json")
+SLOT_EMULATOR_COST = 3
+
 
 def run(cmd, timeout=10):
     try:
@@ -953,6 +958,45 @@ class Monitor:
         with self.lock:
             return {"meta": self.meta, "samples": list(self.samples)}
 
+    def _jobs(self):
+        """The slot job queue with each running job's live CPU use, or None if slot isn't set up."""
+        try:
+            with open(SLOT_STATE) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError):
+            data = {}
+        jobs = []
+        for j in data.get("jobs", []):
+            try:
+                os.kill(j["pid"], 0)
+            except ProcessLookupError:
+                continue
+            except (PermissionError, KeyError, TypeError):
+                pass
+            jobs.append(j)
+        # CPU of each running job = its own process plus everything it started.
+        kids = {}
+        for p in self.procs:
+            kids.setdefault(p.get("ppid"), []).append(p)
+        for j in jobs:
+            if j.get("state") != "running":
+                continue
+            total, stack, seen = 0.0, [j["pid"]], set()
+            while stack:
+                pid = stack.pop()
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                for c in kids.get(pid, []):
+                    total += c["cpu"]
+                    stack.append(c["pid"])
+            j["cpu"] = round(total)
+        cap = max(2, NCPU - SLOT_EMULATOR_COST * int(data.get("emu") or 0))
+        return {"capacity": cap, "base": NCPU, "jobs": jobs,
+                "used": sum(j.get("credits", 0) for j in jobs if j.get("state") == "running")}
+
     def live(self, since, visible=True):
         if visible:
             self.last_client = time.time()
@@ -974,6 +1018,7 @@ class Monitor:
                 "notify": SETTINGS.data.get("notify", True), "warm": self.warm,
                 "fan": FANS.status([p["pid"] for p in self.procs if p["app"] == "Macs Fan Control"]),
                 "overhead": self.overhead, "mode": "live" if self.active() else "background",
+                "jobs": self._jobs(),
                 "uptime": time.time() - self.meta["boot"] if self.meta.get("boot") else None,
             }
 

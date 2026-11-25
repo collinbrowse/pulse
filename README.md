@@ -14,6 +14,7 @@ A lightweight performance, storage and fan monitor for Apple Silicon Macs. It us
   - Cleanup suggestions rated *safe* / *review* / *careful*, covering Xcode build data and device support, simulators and their iOS versions, package caches, inactive `node_modules`, old installers, Android emulators and more.
   - Deleting moves files to the Trash or removes them permanently, after you confirm.
   - An "Ask Claude" button hands a storage report to [Claude Code](https://claude.com/claude-code) to plan a cleanup with you.
+- **Job queue:** if `~/.claude/bin/slot` is set up, a panel lists the builds and test runs waiting for or using CPU across all your projects, with the project, worktree, task and live CPU use of each.
 - **Fans:** live RPM, plus Auto, Balanced, High Performance (spins up early, before heat builds), Full throttle and Custom modes.
 
 ## Install
